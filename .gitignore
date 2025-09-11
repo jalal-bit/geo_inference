@@ -1,0 +1,27 @@
+# Ignore .env file
+.env
+
+# Ignore all files with .sbatch extension
+*.sbatch
+
+# Ignore log folder
+logs/
+
+# Ignore checkpoints folder
+checkpoints/
+
+# Ignore data folder
+data/
+
+# Ignore geo_inf_llm_cache folder
+geo_inf_llm_cache/
+
+# Ignore geoinf_llm_env folder
+geoinf_llm_env/
+
+# Ignore any file that starts with '='
+=*
+
+# Ignore Python bytecode cache
+__pycache__/
+
