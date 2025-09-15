@@ -258,7 +258,7 @@ def main_cli():
                 sys.exit(1)
         elif shot_type=='zero_shot':
             run_note=f"{shot_type}-prompt"
-            test_df_save_path=f"{data_folder}/{model_name}/pretokenaized/original_data/test_pretoken"
+            test_df_save_path=f"{data_folder}/{model_name}/pretokenized/original_data/test_pretoken"
     else:
         test_df_save_path=f"{data_folder}/{model_name}/pretokenized/original_data/test_pretoken"
 
