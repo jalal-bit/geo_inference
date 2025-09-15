@@ -1,6 +1,6 @@
 import pandas as pd
 import os,sys
-from data_prep.pre_tokenize_data import preprocess_and_save
+from pre_tokenize_data import preprocess_and_save
 from transformers import AutoTokenizer
 from dotenv import load_dotenv
 import argparse
