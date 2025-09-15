@@ -245,7 +245,7 @@ def main_cli():
         if shot_type=='few_shot' or shot_type=='one_shot':
             run_num=args.run_num
             if run_num>=0:
-                test_df_save_path=f"data/{model_name}/pretokenized/{shot_type}/run_{run_num}/test_pretoken"
+                test_df_save_path=f"{data_folder}/{model_name}/pretokenized/{shot_type}/run_{run_num}/test_pretoken"
                 shot_path=f"{data_folder}/raw/one_shot/run_{run_num}/{shot_type}_prompt.txt"
                 with open(shot_path,'r') as f:
                     shot_prompt=f.read()
