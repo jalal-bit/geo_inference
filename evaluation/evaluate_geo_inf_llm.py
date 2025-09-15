@@ -92,7 +92,7 @@ def evaluate(model, val_loader, tokenizer, accelerator,max_new_tokens=60, log_fi
     accelerator.wait_for_everyone()
     return metrics
 
-def test_geo_inf_model(model_name,checkpoint_path,test_dataset,batch_size,checkpoint_folder="all_checkpoints/",max_new_tokens=25,wandb_project=None,run_note=None,wandb_config=None):
+def test_geo_inf_model(model_name,checkpoint_path,test_dataset,batch_size,checkpoint_folder="checkpoints/",max_new_tokens=25,wandb_project=None,run_note=None,wandb_config=None):
   
     # Optim + sched
     accelerator = Accelerator(mixed_precision="bf16")
