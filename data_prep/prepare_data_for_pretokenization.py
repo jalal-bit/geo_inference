@@ -33,7 +33,7 @@ def main_cli():
     model_name=args.model_name
     max_length=args.max_length
     data_folder="../data"
-
+    
 
     if shot_type:
         if shot_type=='few_shot' or shot_type=='one_shot':
@@ -52,7 +52,10 @@ def main_cli():
     else:
         input_path="{data_folder}/raw/test.csv"
         test_df_save_path=f"{data_folder}/{model_name}/pretokenized/original_data/test_pretoken"
+    
 
+    print("model name",model_name)
+    print("shot type",shot_type)
     load_dotenv()
     hf_token = os.getenv("HF_TOKEN")
     if hf_token:
