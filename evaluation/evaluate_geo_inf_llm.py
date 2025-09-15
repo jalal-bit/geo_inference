@@ -14,9 +14,9 @@ from dotenv import load_dotenv
 import sys
 
 
-from evaluation.collators import DataCollatorForEval
-from evaluation.metrics import compute_validation_metrics
-from evaluation.load import load_model_else, load_model_gemma
+from collators import DataCollatorForEval
+from metrics import compute_validation_metrics
+from load import load_model_else, load_model_gemma
 
 def evaluate(model, val_loader, tokenizer, accelerator,max_new_tokens=60, log_first_batch=False):
     """
