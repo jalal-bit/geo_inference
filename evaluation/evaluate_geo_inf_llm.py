@@ -133,7 +133,7 @@ def test_geo_inf_model(model_name,checkpoint_path,test_dataset,batch_size,checkp
 
     # --- Create output directories ---
     
-    temp_folder= f"{model_name}_{checkpoint_path}"if checkpoint_path else model_name
+    temp_folder= f"{model_name}_{checkpoint_path}/best"if checkpoint_path else model_name
     test_result_output_drive= os.path.join(checkpoint_folder, temp_folder)
     if accelerator.is_main_process:
         os.makedirs(test_result_output_drive, exist_ok=True)
