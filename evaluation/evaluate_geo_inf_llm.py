@@ -227,6 +227,8 @@ def main_cli():
     args = parse_args()
     model_name = args.model_name  # replace with your model
     checkpoint_path=args.checkpoint_path
+    if not checkpoint_path or checkpoint_path=="":
+        checkpoint_path=None
     checkpoint_folder=args.checkpoint_folder
     batch_size=args.batch_size
     max_new_tokens=args.max_new_tokens
@@ -235,6 +237,7 @@ def main_cli():
     run_note=None
     run_config=None
     test_df_save_path=None
+    data_folder="../data"
 
     
 
@@ -243,7 +246,7 @@ def main_cli():
             run_num=args.run_num
             if run_num>=0:
                 test_df_save_path=f"data/{model_name}/pretokenized/{shot_type}/run_{run_num}/test_pretoken"
-                shot_path=f"data/raw/one_shot/run_{run_num}/{shot_type}_prompt.txt"
+                shot_path=f"{data_folder}/raw/one_shot/run_{run_num}/{shot_type}_prompt.txt"
                 with open(shot_path,'r') as f:
                     shot_prompt=f.read()
                 if shot_prompt:
@@ -255,9 +258,9 @@ def main_cli():
                 sys.exit(1)
         elif shot_type=='zero_shot':
             run_note=f"{shot_type}-prompt"
-            test_df_save_path=f"data/{model_name}/pretokenaized/original_data/test_pretoken"
+            test_df_save_path=f"{data_folder}/{model_name}/pretokenaized/original_data/test_pretoken"
     else:
-        test_df_save_path=f"data/{model_name}/pretokenized/original_data/test_pretoken"
+        test_df_save_path=f"{data_folder}/{model_name}/pretokenized/original_data/test_pretoken"
 
     
 
