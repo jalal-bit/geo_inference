@@ -8,7 +8,7 @@ def load_model_gemma(model_name, hf_token, using_accelerator=False, checkpoint_f
     # Determine the model source (either base model or checkpoint directory)
     
     if checkpoint_folder and checkpoint_path:
-        model_source=os.path.join(checkpoint_folder,f"{model_name}_{checkpoint_path}")
+        model_source=os.path.join(checkpoint_folder,f"{model_name}_{checkpoint_path}/best")
     else:
         model_source = model_name
         
@@ -31,7 +31,7 @@ def load_model_gemma(model_name, hf_token, using_accelerator=False, checkpoint_f
     
 
     if checkpoint_path:
-        print(f"✅ Loaded model and tokenizer from checkpoint: {checkpoint_path}")
+        print(f"✅ Loaded model and tokenizer from checkpoint: {checkpoint_path}/best")
     else:
         print(f"✅ Loaded base model: {model_name}")
 
@@ -43,7 +43,7 @@ def load_model_else(model_name, hf_token, using_accelerator=False, checkpoint_fo
     
     # Determine the model source (either base model or checkpoint directory)
     if checkpoint_folder and checkpoint_path:
-        model_source=os.path.join(checkpoint_folder,f"{model_name}_{checkpoint_path}")
+        model_source=os.path.join(checkpoint_folder,f"{model_name}_{checkpoint_path}/best")
     else:
         model_source = model_name
 
@@ -74,7 +74,7 @@ def load_model_else(model_name, hf_token, using_accelerator=False, checkpoint_fo
             model.generation_config.pad_token_id = tokenizer.pad_token_id
 
     if checkpoint_path:
-        print(f"✅ Loaded model and tokenizer from checkpoint: {checkpoint_path}")
+        print(f"✅ Loaded model and tokenizer from checkpoint: {checkpoint_path}/best")
     else:
         print(f"✅ Loaded base model: {model_name}")
 
