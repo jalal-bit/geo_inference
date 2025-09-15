@@ -268,7 +268,8 @@ def main_cli():
         print("test data set exists")
         test_dataset=load_from_disk(test_df_save_path)
     else:
-        print("test data set does not exist")
+        print("test data set does not exist",{test_df_save_path})
+        sys.exit(1)
     
 
     if test_dataset!=None:
