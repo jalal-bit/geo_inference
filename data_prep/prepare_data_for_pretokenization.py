@@ -47,7 +47,7 @@ def main_cli():
                 sys.exit(1)
         elif shot_type=='zero_shot':
             input_path=f"{data_folder}/raw/test.csv"
-            test_df_save_path=f"{data_folder}/{model_name}/pretokenaized/original_data/test_pretoken"
+            test_df_save_path=f"{data_folder}/{model_name}/pretokenized/original_data/test_pretoken"
             
     else:
         input_path=f"{data_folder}/raw/test.csv"
