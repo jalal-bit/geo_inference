@@ -22,6 +22,7 @@ import argparse
 from datetime import datetime
 from accelerate.utils import broadcast
 from accelerate.utils import gather_object
+from dotenv import load_dotenv
 
 
 
@@ -328,8 +329,20 @@ def evaluate(model, val_loader, tokenizer, accelerator, max_new_tokens=60, log_f
 # Train loop (Accelerator-safe)
 # --------------------------
 
-def train_loop(model_name,train_dataset,val_dataset, hf_token,batch_size, check_point_path, epochs=3,lr=2e-5,weight_decay=0.01,warmup_ratio=0.03,grad_accum_steps=1,max_grad_norm=1.0,gen_cfg=None,save_best_on="county_f1",wandb_project=None,wandb_key=None, wandb_config=None,timestamp_str=None):
-  
+def train_loop(model_name,train_dataset,val_dataset,batch_size, check_point_path, epochs=3,lr=2e-5,weight_decay=0.01,warmup_ratio=0.03,grad_accum_steps=1,max_grad_norm=1.0,gen_cfg=None,save_best_on="county_f1",wandb_project=None, wandb_config=None,timestamp_str=None):
+    
+
+    load_dotenv()  # will read .env automatically
+
+    hf_token = os.getenv("HF_TOKEN")
+    if hf_token:
+        print("hf_token loaded")
+
+    wandb_key = os.getenv("WANDB_API_KEY")
+    if wandb_key:
+        print("wandb_key loaded")
+
+
     # Optim + sched
     accelerator = Accelerator(mixed_precision="bf16")
 
@@ -531,10 +544,9 @@ def main_cli():
     model_name = args.model_name  # replace with your model
 
 
-    train_df_save_path=f"data/{model_name}/train_pretoken"
+    train_df_save_path=f"data/{model_name}/pretokenized/original_data/train_pretoken"
 
-    valid_df_save_path=f"data/{model_name}/val_pretoken"
-
+    valid_df_save_path=f"data/{model_name}/pretokenized/original_data/val_pretoken"
 
     train_ds=None
     val_ds=None
@@ -556,8 +568,7 @@ def main_cli():
 
     if train_ds!=None and val_ds!=None:
        config_dict={"model_name":args.model_name,"bath_size":args.batch_size, "epochs":args.epochs, "learning_rate":args.lr, "weight_decay":args.weight_decay, "warmup_ratio": args.warmup_ratio, "grad_accum_steps":args.grad_accum_steps,"max_grad_norm":args.max_grad_norm}
-
-       train_loop(args.model_name,train_ds,val_ds,args.hf_token,args.batch_size,args.check_point_path, args.epochs, args.lr, args.weight_decay, args.warmup_ratio, args.grad_accum_steps, args.max_grad_norm, args.gen_cfg, args.save_best_on, args.wandb_project, args.wandb_key,config_dict,args.timestamp)
+       train_loop(args.model_name,train_ds,val_ds,args.batch_size,args.check_point_path, args.epochs, args.lr, args.weight_decay, args.warmup_ratio, args.grad_accum_steps, args.max_grad_norm, args.gen_cfg, args.save_best_on, args.wandb_project,config_dict,args.timestamp)
 
     else:
         print("Not starting training, train or validation pretokenized does not exist")
