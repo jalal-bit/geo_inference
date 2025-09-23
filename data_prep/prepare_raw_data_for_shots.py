@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from prepare_data_for_generative import stratified_split, prepare_for_generative_with_one_shot_prompt, prepare_for_generative_with_few_shot_prompt
+from data_prep.prepare_raw_data_for_generative import stratified_split, prepare_for_generative_with_one_shot_prompt, prepare_for_generative_with_few_shot_prompt
 import argparse
 
 

@@ -57,6 +57,32 @@ def format_target(row):
     return f"country: US | state: {state_name} | county: {county_name}"
 
 
+
+def prepare_for_generative_original(df):
+    """
+    Convert dataframe into instruction-input-output format for base LLMs.
+    """
+    prompts, targets = [], []
+
+    for _, row in df.iterrows():
+        text = row["cleaned"]
+        target = format_target(row)
+
+        prompt = (
+            "Instruction: Determine the country, state, and county from the following text.\n"
+            f"Input: \"{text}\"\n"
+            "Output:"
+        )
+
+        prompts.append(prompt)
+        targets.append(target)
+
+    return pd.DataFrame({"prompt": prompts, "target": targets})
+
+
+
+
+
 def prepare_for_generative_with_one_shot_prompt(df,us_example,non_us_example):
     """
     Convert dataframe into instruction-input-output format for base LLMs.

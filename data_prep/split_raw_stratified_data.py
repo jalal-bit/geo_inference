@@ -2,6 +2,7 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import os
+from prepare_raw_data_for_generative import prepare_for_generative_original
 
 
 def stratified_split(df, test_size=0.2, val_size=0.1):
@@ -56,11 +57,17 @@ def main_cli():
     df_train_save_path=os.path.join(data_folder,raw_folder,"train.csv")
     df_valid_save_path=os.path.join(data_folder,raw_folder,"valid.csv")
     df_test_save_path=os.path.join(data_folder,raw_folder,"test.csv")
+
+
+    train_generative = prepare_for_generative_original(df_train)
+    val_generative = prepare_for_generative_original(df_valid)
+    test_generative = prepare_for_generative_original(df_test)
+
     
     
-    df_train.to_csv(df_train_save_path)
-    df_valid.to_csv(df_valid_save_path)
-    #df_test.to_csv(df_test_save_path)
+    train_generative.to_csv(df_train_save_path)
+    val_generative.to_csv(df_valid_save_path)
+    #test_generative.to_csv(df_test_save_path)
 
 
 
