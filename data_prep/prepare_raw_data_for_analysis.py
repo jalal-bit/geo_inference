@@ -87,7 +87,7 @@ def main_cli():
     # # Stratified split
     df_train, df_valid , df_test = stratified_split(final_df)
     
-    sample_and_chunk_splits(df_train, df_valid, df_test,output_dir=os.path.join(data_folder,raw_folder,eda_folder)
+    sample_and_chunk_splits(df_train, df_valid, df_test,output_dir=os.path.join(data_folder,raw_folder,eda_folder))
 
 
 
