@@ -31,21 +31,24 @@ def sample_and_chunk_splits(df_train, df_val, df_test, output_dir="output", samp
     Sample 100k rows from each split (train/val/test), stratify by is_us,
     then chunk into 1000-row CSVs and save.
     """
-   
-    print("len df train",len(df_train))
-    print("len df valid",len(df_val))
-    print("len df test",len(df_test))
+
     
 
     def stratified_sample(df, strat_col, n, random_state=42):
-        """Sample n rows stratified by a column."""
+        """Sample n rows stratified by a column (safe for small groups)."""
         frac = n / len(df)
         sampled = (
             df.groupby(strat_col, group_keys=False)
-              .apply(lambda x: x.sample(max(1, int(len(x) * frac)), random_state=random_state))
+            .apply(lambda x: x.sample(n=min(len(x), max(1, int(len(x) * frac))), 
+                                        random_state=random_state))
         )
-        # Ensure exactly n
-        return sampled.sample(n, random_state=random_state)
+        # Ensure exactly n rows (if possible)
+        if len(sampled) >= n:
+            return sampled.sample(n, random_state=random_state)
+        else:
+            # fallback: return all (warn)
+            print(f"⚠️ Warning: only {len(sampled)} rows available, less than requested {n}")
+            return sampled
 
     # Apply stratified sampling
     df_train = stratified_sample(df_train, "is_us", sample_size)
