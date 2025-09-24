@@ -76,16 +76,18 @@ def main_cli():
 
     data_folder="../data"
     raw_folder="raw"
+    eda_folder="eda"
+
 
     data_file="df_training.csv"
-
+    
     raw_data_path=os.path.join(data_folder,raw_folder,data_file)
     final_df = pd.read_csv(raw_data_path)
 
     # # Stratified split
     df_train, df_valid , df_test = stratified_split(final_df)
     
-    sample_and_chunk_splits(df_train, df_valid, df_test)
+    sample_and_chunk_splits(df_train, df_valid, df_test,output_dir=os.path.join(data_folder,raw_folder,eda_folder)
 
 
 
