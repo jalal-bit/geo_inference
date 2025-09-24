@@ -31,6 +31,11 @@ def sample_and_chunk_splits(df_train, df_val, df_test, output_dir="output", samp
     Sample 100k rows from each split (train/val/test), stratify by is_us,
     then chunk into 1000-row CSVs and save.
     """
+   
+    print("len df train",len(df_train))
+    print("len df valid",len(df_val))
+    print("len df test",len(df_test))
+    
 
     def stratified_sample(df, strat_col, n, random_state=42):
         """Sample n rows stratified by a column."""
