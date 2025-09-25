@@ -363,6 +363,9 @@ def train_loop(model_name,train_dataset,val_dataset,batch_size, check_point_path
         raise ValueError("model_name must be a string")
 
     model,tokenizer=load_model(model_name,hf_token=hf_token,using_accelerator=True)
+
+    if fsdp:
+        model.gradient_checkpointing_enable()
     
     max_new_tokens=25
 
