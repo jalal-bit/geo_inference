@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader,Dataset
 import os, re, json, math, time, random
-from accelerate import Accelerator
+from accelerate import Accelerator,FullyShardedDataParallelPlugin
 from transformers import AutoTokenizer, AutoModelForCausalLM, get_linear_schedule_with_warmup
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 from rapidfuzz import fuzz
@@ -329,7 +329,7 @@ def evaluate(model, val_loader, tokenizer, accelerator, max_new_tokens=60, log_f
 # Train loop (Accelerator-safe)
 # --------------------------
 
-def train_loop(model_name,train_dataset,val_dataset,batch_size, check_point_path, epochs=3,lr=2e-5,weight_decay=0.01,warmup_ratio=0.03,grad_accum_steps=1,max_grad_norm=1.0,gen_cfg=None,save_best_on="county_f1",wandb_project=None, wandb_config=None,timestamp_str=None):
+def train_loop(model_name,train_dataset,val_dataset,batch_size, check_point_path, epochs=3,lr=2e-5,weight_decay=0.01,warmup_ratio=0.03,grad_accum_steps=1,max_grad_norm=1.0,gen_cfg=None,save_best_on="county_f1",wandb_project=None, wandb_config=None,timestamp_str=None,fsdp=True):
     
 
     load_dotenv()  # will read .env automatically
@@ -344,7 +344,18 @@ def train_loop(model_name,train_dataset,val_dataset,batch_size, check_point_path
 
 
     # Optim + sched
-    accelerator = Accelerator(mixed_precision="bf16")
+    if fsdp:
+        fsdp_plugin = FullyShardedDataParallelPlugin(
+        sharding_strategy="FULL_SHARD",   # options: FULL_SHARD, SHARD_GRAD_OP, HYBRID_SHARD
+        cpu_offload=False,                # set True to save GPU memory, slower
+        auto_wrap_policy="TRANSFORMER_BASED_WRAP",  # automatically wrap transformer layers
+        backward_prefetch="BACKWARD_PRE", # overlap compute + comm
+        activation_checkpointing=True     # save memory
+        )
+        accelerator = Accelerator( mixed_precision="bf16",fsdp_plugin=fsdp_plugin)
+
+    else:
+        accelerator = Accelerator(mixed_precision="bf16")
 
     if isinstance(model_name, str):  # Ensure model_name is a string
         load_model = load_model_gemma if "gemma" in model_name else load_model_else
