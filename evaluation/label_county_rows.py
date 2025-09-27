@@ -308,7 +308,7 @@ def main_process_loop(accelerator, args):
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--model_name", type=str, required=True)
-    p.add_argument("--data_dir", type=str, default="../data/raw/eda2/geo_inference_output")
+    p.add_argument("--data_dir", type=str, default="../data/raw/eda3/geo_inference_output")
     p.add_argument("--infer_batch_size", type=int, default=8)
     p.add_argument("--max_new_tokens", type=int, default=20)
     p.add_argument("--temperature", type=float, default=0.0)
