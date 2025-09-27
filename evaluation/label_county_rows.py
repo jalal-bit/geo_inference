@@ -104,13 +104,15 @@ def shard_dataframe(df, num_shards):
 
 
 
-def classify_batch(batch_texts, model, tokenizer,gen_kwargs):
+def classify_batch(batch_texts, model, tokenizer,gen_kwargs,accelerator):
     results = {"is_job": [], "is_traffic": []}
+
+    unwrapped_model = accelerator.unwrap_model(model)
 
     # ---- Job classifier
     job_prompts = [prompt_is_job(t) for t in batch_texts]
     job_tok = tokenizer(job_prompts, return_tensors="pt", padding=True, truncation=True,max_length=512).to(model.device)
-    job_out = model.generate(**job_tok, **gen_kwargs)
+    job_out = unwrapped_model.generate(**job_tok, **gen_kwargs)
     job_decoded = tokenizer.batch_decode(job_out, skip_special_tokens=True)
     for d in job_decoded:
         try:
@@ -122,7 +124,7 @@ def classify_batch(batch_texts, model, tokenizer,gen_kwargs):
     # ---- Traffic classifier
     traffic_prompts = [prompt_is_traffic(t) for t in batch_texts]
     traffic_tok = tokenizer(traffic_prompts, return_tensors="pt", padding=True, truncation=True,max_length=512).to(model.device)
-    traffic_out = model.generate(**traffic_tok,**gen_kwargs )
+    traffic_out = unwrapped_model.generate(**traffic_tok,**gen_kwargs )
     traffic_decoded = tokenizer.batch_decode(traffic_out, skip_special_tokens=True)
     for d in traffic_decoded:
         try:
@@ -197,7 +199,7 @@ def worker_loop(accelerator, args):
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i+batch_size]
         
-        preds = classify_batch(batch_texts, model, tokenizer, gen_kwargs)
+        preds = classify_batch(batch_texts, model, tokenizer, gen_kwargs,accelerator)
         for k in outputs.keys():
             outputs[k].extend(preds[k])
 
