@@ -109,7 +109,7 @@ def classify_batch(batch_texts, model, tokenizer,gen_kwargs):
 
     # ---- Job classifier
     job_prompts = [prompt_is_job(t) for t in batch_texts]
-    job_tok = tokenizer(job_prompts, return_tensors="pt", padding=True, truncation=True).to(model.device)
+    job_tok = tokenizer(job_prompts, return_tensors="pt", padding=True, truncation=True,max_length=512).to(model.device)
     job_out = model.generate(**job_tok, **gen_kwargs)
     job_decoded = tokenizer.batch_decode(job_out, skip_special_tokens=True)
     for d in job_decoded:
@@ -121,7 +121,7 @@ def classify_batch(batch_texts, model, tokenizer,gen_kwargs):
 
     # ---- Traffic classifier
     traffic_prompts = [prompt_is_traffic(t) for t in batch_texts]
-    traffic_tok = tokenizer(traffic_prompts, return_tensors="pt", padding=True, truncation=True).to(model.device)
+    traffic_tok = tokenizer(traffic_prompts, return_tensors="pt", padding=True, truncation=True,max_length=512).to(model.device)
     traffic_out = model.generate(**traffic_tok,**gen_kwargs )
     traffic_decoded = tokenizer.batch_decode(traffic_out, skip_special_tokens=True)
     for d in traffic_decoded:
