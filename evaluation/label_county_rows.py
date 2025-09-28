@@ -14,6 +14,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from accelerate import Accelerator
 import re
+from typing import Optional, Dict, Any
+
 
 # ---------- Config ----------
 PRED_SUFFIX = ".preds.csv"
@@ -75,14 +77,40 @@ def load_model(model_name, hf_token, using_accelerator=False):
     return model, tokenizer
 
 
+
+def safe_json_extract(raw: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract the first valid JSON object like {"is_job": 0} or {"is_job": 1}
+    from a raw LM output string.
+    """
+    # Find JSON object pattern
+    match = re.search(r"\{[^{}]*\}", raw)
+    if not match:
+        return None
+
+    snippet = match.group(0)
+
+    try:
+        return json.loads(snippet)
+    except json.JSONDecodeError:
+        # Try to fix single quotes or trailing comments
+        fixed = snippet.replace("'", '"')
+        try:
+            return json.loads(fixed)
+        except Exception:
+            return None
+
 def safe_json_parse(raw: str, key: str):
     candidate = raw.split("Answer:")[-1].strip()
-    candidate = re.sub(r"'", '"', candidate)  # normalize
     try:
-        return json.loads(candidate).get(key, 0)
+        candid_json=safe_json_extract(candidate)
+        return candid_json.get(key, 0)
     except Exception as e:
         print(f"[WARN parse failed] raw='{raw}' err={e}")
         return 0
+    
+
+
 
 
 def classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator):
