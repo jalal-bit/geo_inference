@@ -25,17 +25,26 @@ MAX_WAIT = 60 * 60 * 2  # 2 hours (adjust if needed)
 
 def prompt_is_job(text: str) -> str:
     return f"""
-You are a classifier. You will classify if a text is a job posting.
-Here is an example (one-shot learning):
+You are a classifier. You will classify if a text is a job-related post (job posting, career tip, hiring announcement, or application link). 
+Answer only with a JSON object like {{"is_job": 1}} for yes or {{"is_job": 0}} for no. Do not include any extra text.
 
+Examples:
 Text: "This job might be a great fit for you: FT - Sales Specialist ProServices - Opening - #Sales #California, MD"
 Answer: {{"is_job": 1}}
 
-Now classify the following text. Answer only with a valid JSON object {{"is_job": 1}} if yes, or {{"is_job": 0}} if no.
+Text: "Build a career in your community! Allied Universal is now hiring in #Phoenix, AZ. Apply today! #SecurityOfficer"
+Answer: {{"is_job": 1}}
+
+Text: "Click the link in our bio to see currently open #Sales jobs like 'Verizon Sales Consultant' at Cellular Sales in #Chicago, IL."
+Answer: {{"is_job": 1}}
+
+
+Now classify the following text. Answer strictly in the JSON format above:
 
 Text: "{text}"
 Answer:
 """.strip()
+
 
 
 def prompt_is_traffic(text: str) -> str:
