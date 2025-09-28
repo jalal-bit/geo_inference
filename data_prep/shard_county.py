@@ -1,39 +1,60 @@
 import os
-import math
+import glob
 import argparse
+from pathlib import Path
+
 import pandas as pd
 
-def shard_dataset(input_path, output_dir, world_size, file_prefix="shard"):
-    # Load dataset (adjust if JSON/CSV/parquet/etc.)
-    df = pd.read_csv(input_path)
+SHARD_PREFIX = ".shard"  # suffix marker for shard files
 
-    # Compute shard sizes
-    total_rows = len(df)
-    shard_size = math.ceil(total_rows / world_size)
 
-    os.makedirs(output_dir, exist_ok=True)
-
+def shard_dataframe(df, num_shards):
+    """Split DataFrame into roughly equal shards."""
     shards = []
-    for rank in range(world_size):
-        start_idx = rank * shard_size
-        end_idx = min((rank + 1) * shard_size, total_rows)
-        shard_df = df.iloc[start_idx:end_idx]
-
-        shard_path = os.path.join(output_dir, f"{file_prefix}_{rank}.csv")
-        shard_df.to_csv(shard_path, index=False)
-        shards.append(shard_path)
-
-        print(f"Shard {rank}: rows {start_idx}–{end_idx} → {shard_path}")
-
+    n = len(df)
+    per = n // num_shards
+    extras = n % num_shards
+    start = 0
+    for r in range(num_shards):
+        end = start + per + (1 if r < extras else 0)
+        shards.append(df.iloc[start:end].copy())
+        start = end
     return shards
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=str, required=True, help="Path to input dataset (CSV)")
-    parser.add_argument("--output_dir", type=str, required=True, help="Directory to save shards")
-    parser.add_argument("--world_size", type=int, required=True, help="Total number of ranks (GPUs)")
-    parser.add_argument("--file_prefix", type=str, default="shard", help="Prefix for shard files")
+    parser.add_argument("--data_dir", type=str, required=True,
+                        help="Directory containing input CSV files")
+    parser.add_argument("--num_shards", type=int, required=True,
+                        help="How many shards to split each CSV into")
     args = parser.parse_args()
 
-    shard_dataset(args.input, args.output_dir, args.world_size, args.file_prefix)
+    csvs = sorted(glob.glob(os.path.join(args.data_dir, "*", "*", "*.csv")))
+    if len(csvs) == 0:
+        csvs = sorted(glob.glob(os.path.join(args.data_dir, "*", "*.csv")))
+
+    print(f"Found {len(csvs)} CSV files to shard")
+    for csv_path in csvs:
+        csv_path = Path(csv_path)
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            print(f"Skipping {csv_path} (error reading: {e})")
+            continue
+
+        # Skip if already labeled
+        if all(c in df.columns for c in ["is_job", "is_traffic"]):
+            print(f"Skipping {csv_path} (already labeled)")
+            continue
+
+        # Split into shards and save
+        shards = shard_dataframe(df, args.num_shards)
+        for r, shard_df in enumerate(shards):
+            sp = csv_path.with_suffix(csv_path.suffix + f"{SHARD_PREFIX}{r}.csv")
+            shard_df.to_csv(sp, index=False)
+            print(f"  Wrote shard {r}: {sp} ({len(shard_df)} rows)")
+
+
+if __name__ == "__main__":
+    main()
