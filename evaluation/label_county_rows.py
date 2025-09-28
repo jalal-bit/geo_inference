@@ -78,38 +78,34 @@ def load_model(model_name, hf_token, using_accelerator=False):
 
 
 
+
 def safe_json_extract(raw: str) -> Optional[Dict[str, Any]]:
     """
-    Extract the first valid JSON object like {"is_job": 0} or {"is_job": 1}
+    Extract the *last* valid JSON object like {"is_job": 0} or {"is_job": 1}
     from a raw LM output string.
     """
-    # Find JSON object pattern
-    match = re.search(r"\{[^{}]*\}", raw)
-    if not match:
-        return None
-
-    snippet = match.group(0)
-
-    try:
-        return json.loads(snippet)
-    except json.JSONDecodeError:
-        # Try to fix single quotes or trailing comments
-        fixed = snippet.replace("'", '"')
+    # Find all JSON-like substrings
+    matches = re.findall(r"\{[^{}]*\}", raw)
+    for m in reversed(matches):  # check from the end backwards
         try:
-            return json.loads(fixed)
-        except Exception:
-            return None
+            return json.loads(m)
+        except json.JSONDecodeError:
+            try:
+                return json.loads(m.replace("'", '"'))
+            except Exception:
+                continue
+    return None
 
-def safe_json_parse(raw: str, key: str):
-    candidate = raw.split("Answer:")[-1].strip()
+
+def safe_json_parse(raw: str, key: str) -> int:
     try:
-        candid_json=safe_json_extract(candidate)
-        return candid_json.get(key, 0)
+        candid_json = safe_json_extract(raw)
+        if candid_json is None:
+            raise ValueError("no valid JSON found")
+        return int(candid_json.get(key, 0))
     except Exception as e:
         print(f"[WARN parse failed] raw='{raw}' err={e}")
         return 0
-    
-
 
 
 
