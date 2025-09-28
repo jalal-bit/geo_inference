@@ -104,37 +104,48 @@ def shard_dataframe(df, num_shards):
 
 
 
-def classify_batch(batch_texts, model, tokenizer,gen_kwargs,accelerator):
+def classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator):
     results = {"is_job": [], "is_traffic": []}
-
     unwrapped_model = accelerator.unwrap_model(model)
 
-    # ---- Job classifier
+    # ---- Job classifier ----
     job_prompts = [prompt_is_job(t) for t in batch_texts]
-    job_tok = tokenizer(job_prompts, return_tensors="pt", padding=True, truncation=True,max_length=512).to(model.device)
-    job_out = unwrapped_model.generate(**job_tok, **gen_kwargs)
-    job_decoded = tokenizer.batch_decode(job_out, skip_special_tokens=True)
-    for d in job_decoded:
+    try:
+        job_tok = tokenizer(job_prompts, return_tensors="pt", padding=True, truncation=True, max_length=512).to(model.device)
+        job_out = unwrapped_model.generate(**job_tok, **gen_kwargs)
+        job_decoded = tokenizer.batch_decode(job_out, skip_special_tokens=True)
+    except Exception as e:
+        print(f"[rank {accelerator.process_index}] ERROR during job classification generate: {e}")
+        job_decoded = [""] * len(batch_texts)
+
+    for idx, d in enumerate(job_decoded):
         try:
             parsed = json.loads(d.split("Answer:")[-1].strip())
-        except Exception:
-            parsed = {"is_job": 0}
-        results["is_job"].append(parsed["is_job"])
+            results["is_job"].append(parsed.get("is_job", 0))
+        except Exception as e:
+            print(f"[rank {accelerator.process_index}] ERROR parsing job output for text idx {idx}: raw='{d}' err={e}")
+            results["is_job"].append(0)
 
-    # ---- Traffic classifier
+    # ---- Traffic classifier ----
     traffic_prompts = [prompt_is_traffic(t) for t in batch_texts]
-    traffic_tok = tokenizer(traffic_prompts, return_tensors="pt", padding=True, truncation=True,max_length=512).to(model.device)
-    traffic_out = unwrapped_model.generate(**traffic_tok,**gen_kwargs )
-    traffic_decoded = tokenizer.batch_decode(traffic_out, skip_special_tokens=True)
-    for d in traffic_decoded:
+    try:
+        traffic_tok = tokenizer(traffic_prompts, return_tensors="pt", padding=True, truncation=True, max_length=512).to(model.device)
+        traffic_out = unwrapped_model.generate(**traffic_tok, **gen_kwargs)
+        traffic_decoded = tokenizer.batch_decode(traffic_out, skip_special_tokens=True)
+    except Exception as e:
+        print(f"[rank {accelerator.process_index}] ERROR during traffic classification generate: {e}")
+        traffic_decoded = [""] * len(batch_texts)
+
+    for idx, d in enumerate(traffic_decoded):
         try:
             parsed = json.loads(d.split("Answer:")[-1].strip())
-        except Exception:
-            parsed = {"is_traffic": 0}
-        results["is_traffic"].append(parsed["is_traffic"])
-
+            results["is_traffic"].append(parsed.get("is_traffic", 0))
+        except Exception as e:
+            print(f"[rank {accelerator.process_index}] ERROR parsing traffic output for text idx {idx}: raw='{d}' err={e}")
+            results["is_traffic"].append(0)
 
     return results
+
 
 
 def worker_loop(accelerator, args):
@@ -148,7 +159,8 @@ def worker_loop(accelerator, args):
     model_name = args.model_name
     print(f"[rank {rank}] loading model {model_name}...")
     model, tokenizer = load_model(model_name, hf_token, using_accelerator=True)
-    # Move model+tokenizer to accelerator (prepares for device)
+
+    # Prepare with accelerator — this will wrap with DDP where appropriate.
     model, tokenizer = accelerator.prepare(model, tokenizer)
     model.eval()
     for p in model.parameters():
@@ -159,6 +171,7 @@ def worker_loop(accelerator, args):
         "max_new_tokens": args.max_new_tokens,
         "temperature": args.temperature,
         "do_sample": False,
+        "pad_token_id": tokenizer.eos_token_id  # be explicit
     }
 
     # discover CSVs once
@@ -166,6 +179,9 @@ def worker_loop(accelerator, args):
     if len(csvs) == 0:
         # fallback older path pattern
         csvs = sorted(glob.glob(os.path.join(args.data_dir, "*", "*.csv")))
+
+    # Print small status so we know worker started
+    print(f"[rank {rank}] found {len(csvs)} CSVs to consider. Waiting for shards...")
 
     for csv_path in csvs:
         csv_path = Path(csv_path)
@@ -177,14 +193,19 @@ def worker_loop(accelerator, args):
         while not shard_path.exists():
             time.sleep(SLEEP_POLL)
             waited += SLEEP_POLL
+            # occasionally print a heartbeat so we can tell the process is alive
+            if int(waited) % 10 == 0 and waited < MAX_WAIT and accelerator.is_main_process:
+                print(f"[rank {rank}] waiting for shard {shard_path} ... waited {int(waited)}s")
             if waited > MAX_WAIT:
                 break
         if not shard_path.exists():
+            # nothing to do for this csv
             continue
 
-        if pred_path.exists():
-            print(f"[rank {rank}] pred exists for {shard_path}, skipping.")
-            continue
+        # If we always want to overwrite preds (no checkpointing), remove the pred existence check:
+        # if pred_path.exists():
+        #     print(f"[rank {rank}] pred exists for {shard_path}, skipping.")
+        #     continue
 
         try:
             shard_df = pd.read_csv(shard_path)
@@ -196,13 +217,28 @@ def worker_loop(accelerator, args):
         outputs = {"is_job": [], "is_traffic": []}
         batch_size = args.infer_batch_size
 
+        # --- FIXED indentation: process each batch inside the loop
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i+batch_size]
-        
-        preds = classify_batch(batch_texts, model, tokenizer, gen_kwargs,accelerator)
-        for k in outputs.keys():
-            outputs[k].extend(preds[k])
 
+            if len(batch_texts) == 0:
+                continue
+
+            # Debug print for progress
+            if accelerator.is_main_process:
+                print(f"[rank {rank}] processing shard {shard_path.name} batch {i // batch_size} size {len(batch_texts)}")
+
+            try:
+                preds = classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator)
+            except Exception as e:
+                print(f"[rank {rank}] Exception in classify_batch: {e}")
+                # on error, append zeros for this batch
+                preds = {"is_job": [0]*len(batch_texts), "is_traffic": [0]*len(batch_texts)}
+
+            for k in outputs.keys():
+                outputs[k].extend(preds[k])
+
+        # save preds
         preds_df = pd.DataFrame(outputs)
         preds_df.to_csv(pred_path, index=False)
         print(f"[rank {rank}] wrote preds {pred_path} ({len(preds_df)} rows)")
