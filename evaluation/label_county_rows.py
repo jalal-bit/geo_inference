@@ -137,6 +137,7 @@ def safe_json_parse(raw: str, key: str):
         return 0
 
 
+    
 def classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator):
     """
     Run 2 classifiers per batch: is_job, is_traffic. Return dict of lists.
@@ -158,13 +159,7 @@ def classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator):
         print(f"[DEBUG is_job decoded {j}] {d}")
 
     for d in job_decoded:
-        try:
-            parsed = json.loads(d.split("Answer:")[-1].strip())
-            val = int(bool(parsed.get("is_job", 0)))
-        except Exception as e:
-            print(f"[WARN is_job parse failed] raw='{d[:200]}', error={e}")
-            val = 0
-        results["is_job"].append(val)
+        results["is_job"].append(safe_json_parse(d, "is_job"))
 
     # ---- Traffic classifier
     traffic_prompts = [prompt_is_traffic(t) for t in batch_texts]
@@ -178,13 +173,8 @@ def classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator):
         print(f"[DEBUG is_traffic decoded {j}] {d}")
 
     for d in traffic_decoded:
-        try:
-            parsed = json.loads(d.split("Answer:")[-1].strip())
-            val = int(bool(parsed.get("is_traffic", 0)))
-        except Exception as e:
-            print(f"[WARN is_traffic parse failed] raw='{d[:200]}', error={e}")
-            val = 0
-        results["is_traffic"].append(val)
+        results["is_traffic"].append(safe_json_parse(d, "is_traffic"))
+        
 
     return results
 
