@@ -108,43 +108,48 @@ def classify_batch(batch_texts, model, tokenizer, gen_kwargs, accelerator):
     results = {"is_job": [], "is_traffic": []}
     unwrapped_model = accelerator.unwrap_model(model)
 
-    # ---- Job classifier ----
+    # ---- Job classifier
     job_prompts = [prompt_is_job(t) for t in batch_texts]
-    try:
-        job_tok = tokenizer(job_prompts, return_tensors="pt", padding=True, truncation=True, max_length=512).to(model.device)
-        job_out = unwrapped_model.generate(**job_tok, **gen_kwargs)
-        job_decoded = tokenizer.batch_decode(job_out, skip_special_tokens=True)
-    except Exception as e:
-        print(f"[rank {accelerator.process_index}] ERROR during job classification generate: {e}")
-        job_decoded = [""] * len(batch_texts)
+    job_tok = tokenizer(
+        job_prompts, return_tensors="pt", padding=True, truncation=True, max_length=512
+    ).to(model.device)
+    job_out = unwrapped_model.generate(**job_tok, **gen_kwargs)
+    job_decoded = tokenizer.batch_decode(job_out, skip_special_tokens=True)
 
-    for idx, d in enumerate(job_decoded):
+    # Log the first few decoded outputs
+    for j, d in enumerate(job_decoded[:3]):  # just show first 3 for sanity check
+        print(f"[DEBUG is_job decoded {j}] {d}")
+
+    for d in job_decoded:
         try:
             parsed = json.loads(d.split("Answer:")[-1].strip())
-            results["is_job"].append(parsed.get("is_job", 0))
         except Exception as e:
-            print(f"[rank {accelerator.process_index}] ERROR parsing job output for text idx {idx}: raw='{d}' err={e}")
-            results["is_job"].append(0)
+            print(f"[WARN is_job parse failed] raw='{d}', error={e}")
+            parsed = {"is_job": 0}
+        results["is_job"].append(parsed["is_job"])
 
-    # ---- Traffic classifier ----
+    # ---- Traffic classifier
     traffic_prompts = [prompt_is_traffic(t) for t in batch_texts]
-    try:
-        traffic_tok = tokenizer(traffic_prompts, return_tensors="pt", padding=True, truncation=True, max_length=512).to(model.device)
-        traffic_out = unwrapped_model.generate(**traffic_tok, **gen_kwargs)
-        traffic_decoded = tokenizer.batch_decode(traffic_out, skip_special_tokens=True)
-    except Exception as e:
-        print(f"[rank {accelerator.process_index}] ERROR during traffic classification generate: {e}")
-        traffic_decoded = [""] * len(batch_texts)
+    traffic_tok = tokenizer(
+        traffic_prompts, return_tensors="pt", padding=True, truncation=True, max_length=512
+    ).to(model.device)
+    traffic_out = unwrapped_model.generate(**traffic_tok, **gen_kwargs)
+    traffic_decoded = tokenizer.batch_decode(traffic_out, skip_special_tokens=True)
 
-    for idx, d in enumerate(traffic_decoded):
+    # Log the first few decoded outputs
+    for j, d in enumerate(traffic_decoded[:3]):
+        print(f"[DEBUG is_traffic decoded {j}] {d}")
+
+    for d in traffic_decoded:
         try:
             parsed = json.loads(d.split("Answer:")[-1].strip())
-            results["is_traffic"].append(parsed.get("is_traffic", 0))
         except Exception as e:
-            print(f"[rank {accelerator.process_index}] ERROR parsing traffic output for text idx {idx}: raw='{d}' err={e}")
-            results["is_traffic"].append(0)
+            print(f"[WARN is_traffic parse failed] raw='{d}', error={e}")
+            parsed = {"is_traffic": 0}
+        results["is_traffic"].append(parsed["is_traffic"])
 
     return results
+
 
 
 
