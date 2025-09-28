@@ -7,7 +7,6 @@ import os
 
 
 def split_by_county_and_save(train_df_us_unique_filtered, output_dir):
-    import os
 
     # Group by state and county
     grouped = train_df_us_unique_filtered.groupby(['state_id', 'state_name', 'fips', 'county_name'])
