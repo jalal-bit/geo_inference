@@ -62,7 +62,7 @@ def merge_shards( args):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", type=str, default="../data/raw/eda_test/geo_inference_output")
+    p.add_argument("--data_dir", type=str, default="../data/raw/us_counties_job_traffic_labeled/geo_inference_output")
 
     return p.parse_args()
 
