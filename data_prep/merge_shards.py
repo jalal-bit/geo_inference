@@ -24,7 +24,9 @@ def merge_shards( args):
             continue
 
         base_no_ext = os.path.splitext(str(csv_path))[0]
+        print("base on ext",base_no_ext)
         shard_paths = sorted(glob.glob(f"{base_no_ext}.shard_*.csv"))
+        print("shard_paths",shard_paths)
         pred_paths = [Path(sp + PRED_SUFFIX) for sp in shard_paths]
 
         print("pred_paths",pred_paths)
