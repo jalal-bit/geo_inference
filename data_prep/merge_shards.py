@@ -59,3 +59,7 @@ def main():
 
     # Phase 1: worker labeling
     merge_shards(args)
+
+
+if __name__ == "__main__":
+    main()
