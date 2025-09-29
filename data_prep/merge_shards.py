@@ -27,6 +27,8 @@ def merge_shards( args):
         shard_paths = sorted(glob.glob(f"{base_no_ext}.shard_*.csv"))
         pred_paths = [Path(sp + PRED_SUFFIX) for sp in shard_paths]
 
+        print("pred_paths",pred_paths)
+
         preds_list = []
         for sp, pp in zip(shard_paths, pred_paths):
             if pp.exists():
