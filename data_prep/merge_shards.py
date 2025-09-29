@@ -49,6 +49,16 @@ def merge_shards( args):
         df_out.to_csv(csv_path, index=False)
         print(f"[main] wrote labeled CSV {csv_path} (backup at {backup})")
 
+        for sp, pp in zip(shard_paths, pred_paths):
+            for f in (sp, pp):
+                if f and Path(f).exists():
+                    try:
+                        os.remove(f)
+                        print(f"[cleanup] removed {f}")
+                    except Exception as e:
+                        print(f"[WARN] failed to remove {f}: {e}")
+
+
 
 def parse_args():
     p = argparse.ArgumentParser()
