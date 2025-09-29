@@ -12,6 +12,7 @@ def merge_shards( args):
     # collect base CSVs (without shard suffix)
     csvs = sorted(glob.glob(os.path.join(args.data_dir, "**", "*.csv"), recursive=True))
     csvs = [c for c in csvs if ".shard_" not in c and not c.endswith(PRED_SUFFIX)]
+    print("csvs", csvs)
     print(f"[main] merging predictions for {len(csvs)} base CSVs")
 
     for csv_path in csvs:
