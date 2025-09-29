@@ -23,13 +23,11 @@ def merge_shards( args):
             print(f"[main] failed reading {csv_path}: {e}")
             continue
 
-        base_no_ext = os.path.splitext(str(csv_path))[0]
-        print("base on ext",base_no_ext)
+        #base_no_ext = os.path.splitext(str(csv_path))[0]
+        base_no_ext = csv_path
         shard_paths = sorted(glob.glob(f"{base_no_ext}.shard_*.csv"))
-        print("shard_paths",shard_paths)
         pred_paths = [Path(sp + PRED_SUFFIX) for sp in shard_paths]
 
-        print("pred_paths",pred_paths)
 
         preds_list = []
         for sp, pp in zip(shard_paths, pred_paths):
