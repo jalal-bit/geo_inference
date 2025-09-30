@@ -1,6 +1,9 @@
 import pandas as pd
 import os
 
+import argparse
+
+
 
 
 
@@ -50,7 +53,11 @@ def split_by_county_and_save(train_df_us_unique_filtered, output_dir):
 
 
 
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--county_folder", type=str, required=True,help="Directory to write state and county split folders")
 
+    return p.parse_args()
 
 
 
@@ -60,9 +67,11 @@ def split_by_county_and_save(train_df_us_unique_filtered, output_dir):
 def main_cli():
     """SLURM / accelerate entrypoint."""
 
+    args = parse_args()
+
     data_folder="../data"
     raw_folder="raw"
-    eda_folder="eda2"
+    eda_folder=args.county_folder
 
     output_dir=os.path.join(data_folder,raw_folder,eda_folder)
 
