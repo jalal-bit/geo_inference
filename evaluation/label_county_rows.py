@@ -240,10 +240,10 @@ def main():
     accelerator.wait_for_everyone()
 
     # Phase 2: merge predictions
-    if accelerator.is_main_process:
-        main_process_loop(accelerator, args)
+    # if accelerator.is_main_process:
+    #     main_process_loop(accelerator, args)
 
-    accelerator.wait_for_everyone()
+    # accelerator.wait_for_everyone()
     print(f"[proc {accelerator.process_index}] done.")
 
 
