@@ -51,7 +51,7 @@ def main():
         # Split into shards and save
         shards = shard_dataframe(df, args.num_shards)
         for r, shard_df in enumerate(shards):
-            sp = csv_path.with_suffix(csv_path.suffix + f"{SHARD_PREFIX}{r}.csv")
+            sp = csv_path.with_suffix(csv_path.suffix + f"{SHARD_PREFIX}_{r}.csv")
             shard_df.to_csv(sp, index=False)
             print(f"  Wrote shard {r}: {sp} ({len(shard_df)} rows)")
 

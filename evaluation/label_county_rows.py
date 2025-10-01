@@ -152,7 +152,7 @@ def worker_loop(accelerator, args):
     }
 
     # only consider pre-sharded CSVs
-    shards = sorted(glob.glob(os.path.join(args.data_dir, "**", f"*.shard_{rank}.csv"), recursive=True))
+    shards = sorted(glob.glob(os.path.join(args.data_dir, "**", f"*.shard{rank}.csv"), recursive=True))
     print(f"[rank {rank}] found {len(shards)} shards")
 
     for shard_path in shards:
