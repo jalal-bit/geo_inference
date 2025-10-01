@@ -25,7 +25,9 @@ def merge_shards( args):
 
         #base_no_ext = os.path.splitext(str(csv_path))[0]
         base_no_ext = csv_path
-        shard_paths = sorted(glob.glob(f"{base_no_ext}.shard_*.csv"))
+        # shard_paths = sorted(glob.glob(f"{base_no_ext}.shard*.csv"))
+
+        shard_paths = sorted([p for p in glob.glob(f"{base_no_ext}.shard*.csv") if not p.endswith(PRED_SUFFIX)])
         pred_paths = [Path(sp + PRED_SUFFIX) for sp in shard_paths]
 
 
@@ -62,7 +64,7 @@ def merge_shards( args):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--data_dir", type=str, default="../data/raw/us_counties_job_traffic_labeled/geo_inference_output")
+    p.add_argument("--data_dir", type=str, required=True)
 
     return p.parse_args()
 
