@@ -548,6 +548,7 @@ def parse_args():
     parser.add_argument("--wandb_key", type=str, default=None)
     parser.add_argument("--gen_cfg", type=str, default=None)
     parser.add_argument("--timestamp", type=str, required=True)
+    parser.add_argument("--fsdp", action='store_true', help='Enable fully sharded distributed training')
     return parser.parse_args()
 
 
@@ -556,7 +557,7 @@ def main_cli():
     """SLURM / accelerate entrypoint."""
     args = parse_args()
     model_name = args.model_name  # replace with your model
-    fsdp=True
+    fsdp=args.fsdp
 
 
     train_df_save_path=f"data/{model_name}/pretokenized/original_data/train_pretoken"
