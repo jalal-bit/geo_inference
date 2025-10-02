@@ -13,16 +13,16 @@ def process_file(csv_path: Path):
         return
 
     # Skip if missing required columns
-    if not {"is_job", "is_traffic"}.issubset(df.columns):
+    if not {"is_job", "is_traffic","is_weather"}.issubset(df.columns):
         print(f"[SKIP] {csv_path} missing required columns")
         return
 
     base = csv_path.with_suffix("")  # remove .csv
     out_dir = csv_path.parent
 
-    # --- Split into two groups
-    df_positive = df[(df["is_job"] == 1) | (df["is_traffic"] == 1)]
-    df_other = df[(df["is_job"] == 0) & (df["is_traffic"] == 0)]
+    # --- Split into three groups
+    df_positive = df[(df["is_job"] == 1) | (df["is_traffic"] == 1) | (df["is_weather"] == 1) ]
+    df_other = df[(df["is_job"] == 0) & (df["is_traffic"] == 0) & (df["is_weather"] == 0)]
 
     # --- Save only if non-empty
     if not df_positive.empty:

@@ -32,9 +32,10 @@ def process_county(pos_path: Path, other_path: Path):
     other_count = len(other_df)
     total = pos_count + other_count
 
-    # job/traffic counts come from _pos file
+    # counts come from _pos file
     is_job_count = pos_df["is_job"].sum() if "is_job" in pos_df.columns else 0
     is_traffic_count = pos_df["is_traffic"].sum() if "is_traffic" in pos_df.columns else 0
+    is_weather_count = pos_df["is_weather"].sum() if "is_weather" in pos_df.columns else 0
 
     return {
         "state": state,
@@ -43,6 +44,7 @@ def process_county(pos_path: Path, other_path: Path):
         "raw_count": total,
         "is_job_count": is_job_count,
         "is_traffic_count": is_traffic_count,
+        "is_weather_count": is_weather_count,
     }
 
 
@@ -94,15 +96,18 @@ def main():
     # --- County proportions
     df["job_prop"] = df["is_job_count"] / df["raw_count"]
     df["traffic_prop"] = df["is_traffic_count"] / df["raw_count"]
+    df["weather_prop"] = df["is_weather_count"] / df["raw_count"]
 
     # --- State-level aggregation
     state_df = df.groupby("state").agg(
         raw_count=("raw_count", "sum"),
         is_job_count=("is_job_count", "sum"),
         is_traffic_count=("is_traffic_count", "sum"),
+        is_weather_count=("is_weather_count", "sum"),
     ).reset_index()
     state_df["job_prop"] = state_df["is_job_count"] / state_df["raw_count"]
     state_df["traffic_prop"] = state_df["is_traffic_count"] / state_df["raw_count"]
+    state_df["weather_prop"] = state_df["is_weather_count"] / state_df["raw_count"]
 
     # --- Merge state totals into county-level results
     df = df.merge(state_df, on="state", suffixes=("", "_state"))
