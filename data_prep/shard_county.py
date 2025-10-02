@@ -44,9 +44,9 @@ def main():
             continue
 
         # Skip if already labeled
-        # if all(c in df.columns for c in ["is_job", "is_traffic","is_weather"]):
-        #     print(f"Skipping {csv_path} (already labeled)")
-        #     continue
+        if all(c in df.columns for c in ["is_job", "is_traffic","is_weather"]):
+            print(f"Skipping {csv_path} (already labeled)")
+            continue
 
         # Split into shards and save
         shards = shard_dataframe(df, args.num_shards)
