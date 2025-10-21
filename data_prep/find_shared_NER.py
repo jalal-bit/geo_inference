@@ -79,7 +79,7 @@ def main_cli():
     # --- AGGREGATE TWEETS BY COUNTY ---
     print("Aggregating tweets by county...")
     county_texts = (
-        tweets.groupby(["fips", "state"])["tweet"]
+        tweets.groupby(["fips", "state_name"])["tweet"]
         .apply(lambda x: " ".join(x))
         .reset_index()
     )
@@ -137,7 +137,7 @@ def main_cli():
 
     for _, row in tqdm(merged.iterrows(), total=len(merged)):
         fips = row.fips
-        state_name = row.state
+        state_name = row.state_name
         freq_dict = county_freqs.get(fips)
         if not freq_dict:
             continue
@@ -152,7 +152,7 @@ def main_cli():
             if neighbor_row.empty:
                 continue
 
-            n_state = neighbor_row["state"].values[0]
+            n_state = neighbor_row["state_name"].values[0]
             if n_state == state_name:
                 continue  # ✅ Skip same-state comparisons
 
