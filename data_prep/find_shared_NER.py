@@ -218,3 +218,8 @@ def main_cli():
 
     print(f"✅ Done. Grouped results for {len(state_map)} states saved to {output_ner_path}")
 
+
+
+if __name__ == "__main__":
+    main_cli()
+
