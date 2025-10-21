@@ -53,9 +53,14 @@ def main_cli():
     # Merge the filtered counties back with the original dataframe to get the desired rows
     tweets = train_df_us_unique.merge(filtered_counties[['fips', 'county_name']], on=['fips', 'county_name'], how='inner')
 
+   
 
+    
     COUNTY_SHP = "tl_2024_us_county/tl_2024_us_county.shp"
+    county_shp_path=raw_data_path=os.path.join(data_folder,raw_folder,COUNTY_SHP)
+
     OUTPUT_PATH = "shared_ner_neighbors_by_state.json"
+    output_ner_path=raw_data_path=os.path.join(data_folder,raw_folder,OUTPUT_PATH)
 
     # === LOAD AND CLEAN DATA ===
     print("Loading tweets...")
@@ -81,7 +86,7 @@ def main_cli():
 
     # --- LOAD COUNTY SHAPEFILE ---
     print("Loading county shapefile...")
-    counties = gpd.read_file(COUNTY_SHP)[["STATEFP", "COUNTYFP", "GEOID", "geometry", "NAME"]]
+    counties = gpd.read_file(county_shp_path)[["STATEFP", "COUNTYFP", "GEOID", "geometry", "NAME"]]
     counties["GEOID"] = counties["GEOID"].astype(str)
 
     merged = counties.merge(county_texts, left_on="GEOID", right_on="fips", how="inner")
@@ -207,9 +212,9 @@ def main_cli():
         state_map[r["state_name"]][r["county_fips"]].append(county_info)
 
     # === SAVE JSON OUTPUT ===
-    print(f"Saving output to {OUTPUT_PATH} ...")
-    with open(OUTPUT_PATH, "w") as f:
+    print(f"Saving output to {output_ner_path} ...")
+    with open(output_ner_path, "w") as f:
         json.dump(state_map, f, indent=2)
 
-    print(f"✅ Done. Grouped results for {len(state_map)} states saved to {OUTPUT_PATH}")
+    print(f"✅ Done. Grouped results for {len(state_map)} states saved to {output_ner_path}")
 
