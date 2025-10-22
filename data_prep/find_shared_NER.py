@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 import sys
 import argparse
 import os
+import time
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -52,13 +53,12 @@ def main_cli():
     output_ner_path = os.path.join(data_folder, raw_folder, OUTPUT_PATH)
 
     # --- CLEAN DATA ---
-    #tweets["fips"] = tweets["fips"].astype(str).str.zfill(5)
     tweets["fips"] = (
-    tweets["fips"]
-    .astype(str)
-    .str.replace(r"\.0$", "", regex=True)  # remove trailing .0
-    .str.zfill(5)                          # ensure 5 digits with leading zeros
-)
+        tweets["fips"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.zfill(5)
+    )
 
     JOB_KEYWORDS = ["hiring", "job", "click", "apply", "career", "vacancy", "position", "recruit", "opportunity"]
     pattern = re.compile(r"\b(" + "|".join(JOB_KEYWORDS) + r")\b", flags=re.IGNORECASE)
@@ -86,13 +86,10 @@ def main_cli():
     merged = merged.to_crs(epsg=5070)
     print(f"[INFO] Counties merged with tweets: {len(merged):,}")
 
-
     common_fips = set(tweets["fips"]).intersection(set(counties["GEOID"]))
     print(f"[DEBUG] Common FIPS between tweets and shapefile: {len(common_fips)}")
     if len(common_fips) < 10:
         print("[DEBUG] Example common FIPS:", list(common_fips)[:10])
-
-
 
     # Compute distance from US center
     us_center = merged.unary_union.centroid
@@ -108,33 +105,26 @@ def main_cli():
         neighbor_map[row.fips] = neighbors
 
     # Load spaCy model
-    print("[INFO] Loading spaCy model...")
-    nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger"])
+    print("[INFO] Loading spaCy model (NER only)...")
+    nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger", "lemmatizer"])
     nlp.max_length = 10_000_000
 
-    # # Extract NERs sequentially
-    # print("[INFO] Extracting NERs per county...")
-    # county_freqs = {}
-    # for fips, text in tqdm(merged[["fips", "cleaned"]].itertuples(index=False, name=None), total=len(merged)):
-    #     doc = nlp(text)
-    #     ents = [ent.text.strip() for ent in doc.ents]
-    #     freq = Counter(ents)
-    #     county_freqs[fips] = freq
-    #     print(f"[DEBUG] County {fips} NERs extracted: {len(freq)} entities")
-    
+    # --- Extract NERs efficiently ---
+    print("[INFO] Extracting NERs per county (batch mode)...")
     county_freqs = defaultdict(Counter)
-
-    # spaCy’s efficient batch processing
     texts = merged["cleaned"].tolist()
     fips_list = merged["fips"].tolist()
 
+    start_time = time.time()
     for doc, fips in tqdm(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list), total=len(texts)):
-        ents = [ent.text.strip() for ent in doc.ents]
-        county_freqs[fips].update(ents)  # accumulate counts per county
+        ents = [ent.text.strip() for ent in doc.ents if ent.label_ not in ("GPE", "LOC", "FAC")]
+        if ents:
+            county_freqs[fips].update(ents)
+            print(f"[DEBUG] County {fips}: {len(ents)} NER mentions, {len(county_freqs[fips])} unique entities")
 
-    
+    print(f"[INFO] ✅ Completed NER extraction for {len(county_freqs)} counties in {(time.time()-start_time)/60:.2f} min.")
 
-    # Compare neighbors
+    # --- Compare neighbors ---
     print("[INFO] Comparing neighboring counties across states...")
     results = []
     seen_pairs = set()
@@ -183,7 +173,7 @@ def main_cli():
             })
             print(f"[DEBUG] Found {len(shared_data)} shared NERs between {fips} and {nfips}")
 
-    # Postprocessing: add reverse links
+    # --- Postprocessing ---
     print("[INFO] Adding reverse neighbor entries...")
     reverse_entries = []
     for r in results:
@@ -198,7 +188,7 @@ def main_cli():
         })
     results.extend(reverse_entries)
 
-    # Group by state and county
+    # --- Group by state and county ---
     print("[INFO] Grouping results by state and county...")
     state_map = defaultdict(lambda: defaultdict(list))
     for r in results:
@@ -210,12 +200,12 @@ def main_cli():
         }
         state_map[r["state_name"]][r["county_fips"]].append(county_info)
 
-    # Save JSON output
+    # --- Save JSON output ---
     print(f"[INFO] Saving output to {output_ner_path} ...")
     with open(output_ner_path, "w") as f:
         json.dump(state_map, f, indent=2)
 
-    print(f"[INFO] Done. Grouped results for {len(state_map)} states saved to {output_ner_path}")
+    print(f"[INFO] ✅ Done. Grouped results for {len(state_map)} states saved to {output_ner_path}")
 
 
 if __name__ == "__main__":
