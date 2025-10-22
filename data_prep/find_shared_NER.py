@@ -52,7 +52,13 @@ def main_cli():
     output_ner_path = os.path.join(data_folder, raw_folder, OUTPUT_PATH)
 
     # --- CLEAN DATA ---
-    tweets["fips"] = tweets["fips"].astype(str).str.zfill(5)
+    #tweets["fips"] = tweets["fips"].astype(str).str.zfill(5)
+    tweets["fips"] = (
+    tweets["fips"]
+    .astype(str)
+    .str.replace(r"\.0$", "", regex=True)  # remove trailing .0
+    .str.zfill(5)                          # ensure 5 digits with leading zeros
+)
 
     JOB_KEYWORDS = ["hiring", "job", "click", "apply", "career", "vacancy", "position", "recruit", "opportunity"]
     pattern = re.compile(r"\b(" + "|".join(JOB_KEYWORDS) + r")\b", flags=re.IGNORECASE)
@@ -80,11 +86,12 @@ def main_cli():
     merged = merged.to_crs(epsg=5070)
     print(f"[INFO] Counties merged with tweets: {len(merged):,}")
 
-    print("[DEBUG] Checking FIPS formatting before merge...")
-    print("Tweet FIPS samples:", tweets["fips"].astype(str).head(10).tolist())
-    print("County GEOID samples:", counties["GEOID"].astype(str).head(10).tolist())
-    print(f"Unique tweet FIPS count: {tweets['fips'].nunique()}")
-    print(f"Unique GEOID count: {counties['GEOID'].nunique()}")
+
+    common_fips = set(tweets["fips"]).intersection(set(counties["GEOID"]))
+    print(f"[DEBUG] Common FIPS between tweets and shapefile: {len(common_fips)}")
+    if len(common_fips) < 10:
+        print("[DEBUG] Example common FIPS:", list(common_fips)[:10])
+
 
 
     # Compute distance from US center
