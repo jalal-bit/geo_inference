@@ -112,15 +112,27 @@ def main_cli():
     nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger"])
     nlp.max_length = 10_000_000
 
-    # Extract NERs sequentially
-    print("[INFO] Extracting NERs per county...")
-    county_freqs = {}
-    for fips, text in tqdm(merged[["fips", "cleaned"]].itertuples(index=False, name=None), total=len(merged)):
-        doc = nlp(text)
+    # # Extract NERs sequentially
+    # print("[INFO] Extracting NERs per county...")
+    # county_freqs = {}
+    # for fips, text in tqdm(merged[["fips", "cleaned"]].itertuples(index=False, name=None), total=len(merged)):
+    #     doc = nlp(text)
+    #     ents = [ent.text.strip() for ent in doc.ents]
+    #     freq = Counter(ents)
+    #     county_freqs[fips] = freq
+    #     print(f"[DEBUG] County {fips} NERs extracted: {len(freq)} entities")
+    
+    county_freqs = defaultdict(Counter)
+
+    # spaCy’s efficient batch processing
+    texts = merged["cleaned"].tolist()
+    fips_list = merged["fips"].tolist()
+
+    for doc, fips in tqdm(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list), total=len(texts)):
         ents = [ent.text.strip() for ent in doc.ents]
-        freq = Counter(ents)
-        county_freqs[fips] = freq
-        print(f"[DEBUG] County {fips} NERs extracted: {len(freq)} entities")
+        county_freqs[fips].update(ents)  # accumulate counts per county
+
+    
 
     # Compare neighbors
     print("[INFO] Comparing neighboring counties across states...")
