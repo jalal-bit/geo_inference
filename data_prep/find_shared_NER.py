@@ -79,7 +79,7 @@ def main_cli():
     # --- AGGREGATE TWEETS BY COUNTY ---
     print("Aggregating tweets by county...")
     county_texts = (
-        tweets.groupby(["fips", "state_name"])["tweet"]
+        tweets.groupby(["fips", "state_name"])["cleaned"]
         .apply(lambda x: " ".join(x))
         .reset_index()
     )
@@ -124,7 +124,7 @@ def main_cli():
             tqdm(
                 pool.imap(
                     extract_ners_with_freq,
-                    merged[["fips", "tweet"]].itertuples(index=False, name=None),
+                    merged[["fips", "cleaned"]].itertuples(index=False, name=None),
                 ),
                 total=len(merged),
             )
