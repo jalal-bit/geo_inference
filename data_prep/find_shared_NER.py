@@ -116,9 +116,10 @@ def main_cli():
     fips_list = merged["fips"].tolist()
 
     start_time = time.time()
-    for doc, fips in tqdm(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list), total=len(texts)):
-        print("INFO current fips",fips)
+    for i, (doc, fips) in enumerate(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list)):
         ents = [ent.text.strip() for ent in doc.ents]
+        if (i + 1) % 1000 == 0:
+            tqdm.write(f"[INFO] Processed {i+1:,}/{len(texts):,} counties (Current FIPS: {fips})")
         if ents:
             county_freqs[fips].update(ents)
             print(f"[DEBUG] County {fips}: {len(ents)} NER mentions, {len(county_freqs[fips])} unique entities")
