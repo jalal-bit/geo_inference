@@ -117,7 +117,7 @@ def main_cli():
 
     start_time = time.time()
     for doc, fips in tqdm(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list), total=len(texts)):
-        ents = [ent.text.strip() for ent in doc.ents if ent.label_ not in ("GPE", "LOC", "FAC")]
+        ents = [ent.text.strip() for ent in doc.ents
         if ents:
             county_freqs[fips].update(ents)
             print(f"[DEBUG] County {fips}: {len(ents)} NER mentions, {len(county_freqs[fips])} unique entities")
