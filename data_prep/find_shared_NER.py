@@ -116,13 +116,20 @@ def main_cli():
     fips_list = merged["fips"].tolist()
 
     start_time = time.time()
-    for i, (doc, fips) in enumerate(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list)):
+    # for i, (doc, fips) in enumerate(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list)):
+    #     ents = [ent.text.strip() for ent in doc.ents]
+        # if (i + 1) % 1000 == 0:
+        #     tqdm.write(f"[INFO] Processed {i+1:,}/{len(texts):,} counties (Current FIPS: {fips})")
+    for i, (text, fips) in enumerate(zip(texts, fips_list)):
+        doc = nlp(text)  # process one county at a time
         ents = [ent.text.strip() for ent in doc.ents]
-        if (i + 1) % 1000 == 0:
-            tqdm.write(f"[INFO] Processed {i+1:,}/{len(texts):,} counties (Current FIPS: {fips})")
+        county_freqs[fips].update(ents)
         if ents:
             county_freqs[fips].update(ents)
             print(f"[DEBUG] County {fips}: {len(ents)} NER mentions, {len(county_freqs[fips])} unique entities")
+        else:
+            print(f"no ner found for county", fips)
+
 
     print(f"[INFO] ✅ Completed NER extraction for {len(county_freqs)} counties in {(time.time()-start_time)/60:.2f} min.")
 
