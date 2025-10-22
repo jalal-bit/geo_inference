@@ -116,19 +116,21 @@ def main_cli():
     fips_list = merged["fips"].tolist()
 
     start_time = time.time()
-    # for i, (doc, fips) in enumerate(zip(nlp.pipe(texts, batch_size=2000, n_process=4), fips_list)):
-    #     ents = [ent.text.strip() for ent in doc.ents]
-        # if (i + 1) % 1000 == 0:
-        #     tqdm.write(f"[INFO] Processed {i+1:,}/{len(texts):,} counties (Current FIPS: {fips})")
-    for i, (text, fips) in enumerate(zip(texts, fips_list)):
-        doc = nlp(text)  # process one county at a time
-        ents = [ent.text.strip() for ent in doc.ents]
-        county_freqs[fips].update(ents)
-        if ents:
+
+    MAX_CHARS = 500000  # 0.5 million chars per chunk
+
+    def chunk_text(text, max_chars=MAX_CHARS):
+        return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+
+    for i, (fips, text) in enumerate(zip(fips_list, texts)):
+        chunks = chunk_text(text)
+        for doc in nlp.pipe(chunks, batch_size=4):
+            ents = [ent.text.strip() for ent in doc.ents]
             county_freqs[fips].update(ents)
-            print(f"[DEBUG] County {fips}: {len(ents)} NER mentions, {len(county_freqs[fips])} unique entities")
-        else:
-            print(f"no ner found for county", fips)
+            if ents:
+                county_freqs[fips].update(ents)
+        print(f"[DEBUG] County {fips}: {len(ents)} NER mentions, {len(county_freqs[fips])} unique entities")
+
 
 
     print(f"[INFO] ✅ Completed NER extraction for {len(county_freqs)} counties in {(time.time()-start_time)/60:.2f} min.")
@@ -197,17 +199,27 @@ def main_cli():
         })
     results.extend(reverse_entries)
 
-    # --- Group by state and county ---
+  # --- Group by state and county ---
     print("[INFO] Grouping results by state and county...")
-    state_map = defaultdict(lambda: defaultdict(list))
+    state_map = defaultdict(lambda: defaultdict(dict))  # each county_fips -> metadata + neighbors
+
     for r in results:
-        county_info = {
-            "neighbor_fips": r["neighbor_fips"],
+        county_fips = str(r["county_fips"]).zfill(5)  # ensure same format as tweets
+        neighbor_info = {
+            "neighbor_fips": str(r["neighbor_fips"]).zfill(5),
             "neighbor_name": r["neighbor_name"],
             "neighbor_state": r["neighbor_state"],
             "shared_ners": r["shared_ners"],
         }
-        state_map[r["state_name"]][r["county_fips"]].append(county_info)
+
+        # Initialize if not exists
+        if "county_name" not in state_map[r["state_name"]].get(county_fips, {}):
+            state_map[r["state_name"]][county_fips] = {
+                "county_name": r["county_name"],
+                "neighbors": []
+            }
+
+        state_map[r["state_name"]][county_fips]["neighbors"].append(neighbor_info)
 
     # --- Save JSON output ---
     print(f"[INFO] Saving output to {output_ner_path} ...")
