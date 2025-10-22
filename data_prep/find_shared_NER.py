@@ -80,6 +80,13 @@ def main_cli():
     merged = merged.to_crs(epsg=5070)
     print(f"[INFO] Counties merged with tweets: {len(merged):,}")
 
+    print("[DEBUG] Checking FIPS formatting before merge...")
+    print("Tweet FIPS samples:", tweets["fips"].astype(str).head(10).tolist())
+    print("County GEOID samples:", counties["GEOID"].astype(str).head(10).tolist())
+    print(f"Unique tweet FIPS count: {tweets['fips'].nunique()}")
+    print(f"Unique GEOID count: {counties['GEOID'].nunique()}")
+
+
     # Compute distance from US center
     us_center = merged.unary_union.centroid
     merged["dist_to_center"] = merged.geometry.centroid.distance(us_center)
