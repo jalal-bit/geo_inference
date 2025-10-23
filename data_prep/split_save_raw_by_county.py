@@ -101,6 +101,9 @@ def main_cli():
     raw_data_path=os.path.join(data_folder,raw_folder,data_file)
     train_df = pd.read_csv(raw_data_path)
 
+
+    print(f"input data: {data_file} --- county_output {eda_folder} --- should_split {should_split} --- keep_all_columns {keep_all_columns} ")
+
     
     if 'is_us' in train_df.columns:
         train_df_us=train_df[train_df['is_us']==1]
