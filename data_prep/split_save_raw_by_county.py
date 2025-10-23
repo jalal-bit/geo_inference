@@ -68,6 +68,8 @@ def parse_args():
     p.add_argument("--county_folder", type=str, required=True,help="Directory to write state and county split folders")
     p.add_argument("--input_data", type=str, required=True,help="Directory to read data from")
     p.add_argument('--not_split_over_500', action='store_false', help='Enable verbose output.')
+    p.add_argument('--keep_all_columns', action='store_true', help='Keep all columns.')
+
 
     
 
@@ -87,6 +89,7 @@ def main_cli():
     raw_folder="raw"
     eda_folder=args.county_folder
     should_split=args.not_split_over_500
+    keep_all_columns=args.keep_all_columns
 
     output_dir=os.path.join(data_folder,raw_folder,eda_folder)
 
@@ -117,7 +120,7 @@ def main_cli():
     print("train df unique shape",train_df_us_unique_filtered.shape)
 
     # # Stratified split
-    split_by_county_and_save(train_df_us_unique_filtered,output_dir,should_split)
+    split_by_county_and_save(train_df_us_unique_filtered,output_dir,should_split,keep_all_columns)
     
 
 
