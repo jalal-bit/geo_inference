@@ -11,6 +11,16 @@ import argparse
 
 def split_by_county_and_save(train_df_us_unique_filtered, output_dir,should_split=True,all_columns=False):
 
+
+    print("Before grouping:")
+    print("Total rows:", len(train_df_us_unique_filtered))
+    print("Unique states:", train_df_us_unique_filtered['state_name'].nunique())
+    print("Missing FIPS:", train_df_us_unique_filtered['fips'].isna().sum())
+    print("Missing county_name:", train_df_us_unique_filtered['county_name'].isna().sum())
+
+    print("\nTop 10 FIPS counts:")
+    print(train_df_us_unique_filtered['fips'].value_counts().head(10))
+
     # Group by state and county
     grouped = train_df_us_unique_filtered.groupby(['state_id', 'state_name', 'fips', 'county_name'])
 
