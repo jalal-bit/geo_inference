@@ -9,7 +9,7 @@ import argparse
 
 
 
-def split_by_county_and_save(train_df_us_unique_filtered, output_dir):
+def split_by_county_and_save(train_df_us_unique_filtered, output_dir,should_split=True):
 
     # Group by state and county
     grouped = train_df_us_unique_filtered.groupby(['state_id', 'state_name', 'fips', 'county_name'])
@@ -36,17 +36,23 @@ def split_by_county_and_save(train_df_us_unique_filtered, output_dir):
         base_filename = f"{state_name}_{county_name}".replace(" ", "_").replace("/", "_")
 
         # Split and save if file exceeds 500 rows
-        if len(output_df) > 500:
-            num_splits = (len(output_df) + 499) // 500  # Calculate number of splits
-            for i in range(num_splits):
-                split_df = output_df.iloc[i * 500:(i + 1) * 500]
-                output_filename = os.path.join(county_dir, f"{base_filename}_split{i+1}.csv")
-                split_df.to_csv(output_filename, index=False)
+        if should_split:
+            if len(output_df) > 500:
+                num_splits = (len(output_df) + 499) // 500  # Calculate number of splits
+                for i in range(num_splits):
+                    split_df = output_df.iloc[i * 500:(i + 1) * 500]
+                    output_filename = os.path.join(county_dir, f"{base_filename}_split{i+1}.csv")
+                    split_df.to_csv(output_filename, index=False)
+                    print(f"Saved {output_filename}")
+            else:
+                output_filename = os.path.join(county_dir, f"{base_filename}.csv")
+                output_df.to_csv(output_filename, index=False)
                 print(f"Saved {output_filename}")
         else:
-            output_filename = os.path.join(county_dir, f"{base_filename}.csv")
-            output_df.to_csv(output_filename, index=False)
-            print(f"Saved {output_filename}")
+                output_filename = os.path.join(county_dir, f"{base_filename}.csv")
+                output_df.to_csv(output_filename, index=False)
+                print(f"Saved {output_filename}")
+
 
     print("Processing complete.")
 
@@ -56,6 +62,10 @@ def split_by_county_and_save(train_df_us_unique_filtered, output_dir):
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--county_folder", type=str, required=True,help="Directory to write state and county split folders")
+    p.add_argument("--input_data", type=str, required=True,help="Directory to read data from")
+    p.add_argument('--not_split_over_500', action='store_false', help='Enable verbose output.')
+
+    
 
     return p.parse_args()
 
@@ -72,18 +82,24 @@ def main_cli():
     data_folder="../data"
     raw_folder="raw"
     eda_folder=args.county_folder
+    should_split=args.not_split_over_500
 
     output_dir=os.path.join(data_folder,raw_folder,eda_folder)
 
     os.makedirs(output_dir, exist_ok=True)
 
 
-    data_file="df_training.csv"
+    data_file=args.input_data
     
     raw_data_path=os.path.join(data_folder,raw_folder,data_file)
     train_df = pd.read_csv(raw_data_path)
 
-    train_df_us=train_df[train_df['is_us']==1]
+    
+    if 'is_us' in train_df.columns:
+        train_df_us=train_df[train_df['is_us']==1]
+    else:
+        train_df_us=train_df
+
     train_df_us_unique=train_df_us.drop_duplicates(subset=['cleaned'], keep='first')
 
     county_counts = train_df_us_unique.groupby(['fips', 'county_name']).size().reset_index(name='count')
@@ -97,7 +113,7 @@ def main_cli():
     print("train df unique shape",train_df_us_unique_filtered.shape)
 
     # # Stratified split
-    split_by_county_and_save(train_df_us_unique_filtered,output_dir)
+    split_by_county_and_save(train_df_us_unique_filtered,output_dir,should_split)
     
 
 
