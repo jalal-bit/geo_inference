@@ -9,7 +9,7 @@ import argparse
 
 
 
-def split_by_county_and_save(train_df_us_unique_filtered, output_dir,should_split=True):
+def split_by_county_and_save(train_df_us_unique_filtered, output_dir,should_split=True,all_columns=False):
 
     # Group by state and county
     grouped = train_df_us_unique_filtered.groupby(['state_id', 'state_name', 'fips', 'county_name'])
@@ -30,7 +30,11 @@ def split_by_county_and_save(train_df_us_unique_filtered, output_dir,should_spli
         os.makedirs(county_dir, exist_ok=True)
 
         # Select required columns
-        output_df = group_df[['cleaned', 'state_id', 'state_name', 'county_name', 'fips']]
+
+        if all_columns:
+            output_df=group_df
+        else:
+            output_df = group_df[['cleaned', 'state_id', 'state_name', 'county_name', 'fips']]
 
         # Define the base filename
         base_filename = f"{state_name}_{county_name}".replace(" ", "_").replace("/", "_")
@@ -104,7 +108,7 @@ def main_cli():
 
     county_counts = train_df_us_unique.groupby(['fips', 'county_name']).size().reset_index(name='count')
 
-    # Filter to keep groups with count >= 20
+    # Filter to keep groups with count >= 25
     filtered_counties = county_counts[county_counts['count'] >= 25]
 
     # Merge the filtered counties back with the original dataframe to get the desired rows
