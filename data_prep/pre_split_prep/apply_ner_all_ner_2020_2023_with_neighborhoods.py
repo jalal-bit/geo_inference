@@ -69,8 +69,7 @@ place_shp = "../../us_places_2024/us_places_2024/us_places_2024_merged.shp"
 # Drop extra columns immediately
 drop_county_cols = ['STATEFP','COUNTYFP','COUNTYNS','GEOIDFQ','NAMELSAD','LSAD','CLASSFP','MTFCC','CSAFP','CBSAFP','METDIVFP','FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON']
 drop_state_cols = ['STATENS','GEOID','GEOIDFQ','LSAD','MTFCC','FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON']
-drop_place_cols = ['PLACENS','GEOIDFQ','NAMELSAD','LSAD','CLASSFP','PCICBSA','MTFCC',
-                   'FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON']
+drop_place_cols = ['STATEFP','PLACENS','GEOIDFQ','NAMELSAD','LSAD','CLASSFP','PCICBSA','MTFCC','FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON','STATE_ABBR']
 
 counties = gpd.read_file(county_shp).to_crs("EPSG:4326").drop(columns=drop_county_cols)
 states = gpd.read_file(state_shp).to_crs("EPSG:4326").drop(columns=drop_state_cols)
@@ -149,27 +148,24 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
         geo_with_counties['fips'] = geo_with_counties['GEOID']
         geo_with_counties = geo_with_counties.drop(columns=['index_right','NAME','GEOID'])
 
+        # === Spatial join with states ===
+        geo_with_states = gpd.sjoin(geo_with_counties, states, how="left", predicate="intersects")
+        geo_with_states['state_name'] = geo_with_states['NAME']
+        geo_with_states['state_abbr'] = geo_with_states['STUSPS']
+        geo_with_states['state_id'] = geo_with_states['STATEFP']
 
-          # === Spatial join with places/cities ===
-        geo_with_places = gpd.sjoin(geo_with_counties, places, how="left", predicate="intersects")
+        # Drop unneeded columns
+        geo_with_states = geo_with_states.drop(columns=[
+             'index_right', 'NAME', 'STUSPS','STATEFP'])
+
+        # === Spatial join: Places last (intersects) ===
+        geo_with_places = gpd.sjoin(geo_with_states, places, how="left", predicate="intersects")
         geo_with_places['city_name'] = geo_with_places['NAME']
         geo_with_places['place_fips'] = geo_with_places['PLACEFP']
         geo_with_places['place_geoid'] = geo_with_places['GEOID']
-        geo_with_places = geo_with_places.drop(columns=['index_right', 'NAME', 'GEOID'])
-
-          # === Spatial join with states ===
-        geo_with_states = gpd.sjoin(geo_with_places, states, how="left", predicate="intersects")
-        geo_with_states['state_name'] = geo_with_states['NAME']
-        geo_with_states['state_abbr'] = geo_with_states['STUSPS']
-        # Handle possible suffixes from sjoin
-        state_fp_col = next((c for c in geo_with_states.columns if c.startswith("STATEFP")), None)
-        geo_with_states['state_id'] = geo_with_states[state_fp_col] if state_fp_col else None
+        geo_with_places = geo_with_places.drop(columns=['index_right','NAME','GEOID','geometry'])
 
 
-        # Drop only existing columns to avoid KeyError
-        cols_to_drop = ['geometry', 'index_right', 'NAME', 'STUSPS', 'STATEFP']
-        geo_with_states = geo_with_states.drop(columns=[c for c in cols_to_drop if c in geo_with_states.columns])
-        geo_with_states = geo_with_states.drop(columns=[c for c in ['STATEFP_right','STATEFP_left'] if c in geo_with_states.columns])
 
                 # === Handle neighborhoods ===
         def extract_neighborhood(row):
@@ -177,13 +173,13 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
                 return row.get('name', None)
             return None
 
-        geo_with_states['neighborhood'] = geo_with_states.apply(extract_neighborhood, axis=1)
+        geo_with_places['neighborhood'] = geo_with_places.apply(extract_neighborhood, axis=1)
 
 
         
         # Separate US and non-US tweets
-        us_tweets = geo_with_states.dropna(subset=["state_name"])
-        non_us_tweets = geo_with_states[geo_with_states["state_name"].isna()]
+        us_tweets = geo_with_places.dropna(subset=["state_name"])
+        non_us_tweets = geo_with_places[geo_with_places["state_name"].isna()]
 
         print(f"🇺🇸 US tweets: {len(us_tweets)}")
         print(f"Non-US tweets: {len(non_us_tweets)}")
