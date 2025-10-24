@@ -15,8 +15,16 @@ def split_by_county_and_save(train_df_us_unique_filtered, output_dir,should_spli
     print("Before grouping:")
     print("Total rows:", len(train_df_us_unique_filtered))
     print("Unique states:", train_df_us_unique_filtered['state_name'].nunique())
+    print("Unique states values:", train_df_us_unique_filtered['state_name'].unique())
     print("Unique FIPS", train_df_us_unique_filtered['fips'].nunique())
     print("Unique Stated IDS", train_df_us_unique_filtered['state_id'].nunique())
+    print("Unique Stated IDS values", train_df_us_unique_filtered['state_id'].unique())
+    print("Unique Stated missing states ID", train_df_us_unique_filtered['state_id'].isna().sum())
+    print("Missing state_name:", train_df_us_unique_filtered['state_name'].isna().sum())
+    print("top Unique Stated missing states names", train_df_us_unique_filtered[train_df_us_unique_filtered['state_name'].isna()].head(1))
+
+    print("top Unique Stated missing states ID", train_df_us_unique_filtered[train_df_us_unique_filtered['state_id'].isna()].head(10))
+
 
     print("Missing FIPS:", train_df_us_unique_filtered['fips'].isna().sum())
     print("Missing county_name:", train_df_us_unique_filtered['county_name'].isna().sum())
