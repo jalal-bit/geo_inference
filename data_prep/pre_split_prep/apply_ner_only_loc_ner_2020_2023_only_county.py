@@ -121,7 +121,7 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
         if filtered_chunk.empty:
             continue
 
-         filtered_chunk=filtered_chunk.drop_duplicates(subset=['geo_lat', 'geo_long', 'cleaned'])
+        filtered_chunk=filtered_chunk.drop_duplicates(subset=['geo_lat', 'geo_long', 'cleaned'])
         # Create point geometry from lat/lon
         geometry = [Point(xy) for xy in zip(filtered_chunk[long_col], filtered_chunk[lat_col])]
         geo_df = gpd.GeoDataFrame(filtered_chunk, geometry=geometry, crs="EPSG:4326")
@@ -155,31 +155,6 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
             us_tweets.to_csv(us_output_path, index=False, header=first_us, mode="a")
             first_us = False
         
-
-                # Write Non-US tweets
-        if not non_us_tweets.empty:
-            non_us_tweets.to_csv(non_us_output_path, index=False, header=first_non_us, mode="a")
-            first_non_us = False
-
-
-
-if __name__ == "__main__":
-    input_file = sys.argv[1]
-    if not os.path.exists(input_file):
-       print(f"The input file doesn not exist {input_file}")
-       sys.exit(1)
-
-    name_without_ext = Path(input_file).stem
-    us_output_path = f"us_tweets_NER_{name_without_ext}.csv"
-    non_us_output_path=f"non_us_tweets_NER_{name_without_ext}.csv"
-
-    print(f"Processing: {input_file}")
-
-    process_large_csv(input_file, us_output_path=us_output_path, non_us_output_path=non_us_output_path, text_column="tweet_text", chunksize=100000)
-    # print(f"Saved filtered data to {output_file}")
-
-
-
 
 
 
