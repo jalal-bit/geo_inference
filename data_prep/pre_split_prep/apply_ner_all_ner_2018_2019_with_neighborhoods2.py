@@ -6,7 +6,6 @@ import sys
 from ftlangdetect import detect
 from pathlib import Path
 
-
 import geopandas as gpd
 from shapely.geometry import Point
 
@@ -42,9 +41,9 @@ def filter_english_fasttext_langdetect(df, text_col="tweet_text",min_score=0.65)
             # Code to handle the exception
             print("An error occurred:", e)
             return False  # If detection fails, assume non-English
-
+    
     df["is_english"] = df[text_col].astype(str).apply(is_english)
-
+    
     return df[df["is_english"]].drop(columns=["is_english"])
 
 
@@ -65,21 +64,24 @@ bad_words = load_bad_words("../../List-of-Dirty-Naughty-Obscene-and-Otherwise-Ba
 # === Load shapefiles ===
 county_shp = "../../tl_2024_us_county/tl_2024_us_county.shp"
 state_shp = "../../tl_2024_us_state/tl_2024_us_state.shp"
-place_shp = "../../us_places_2024/us_places_2024/us_places_2024_merged.shp"
+place_shp = "../../us_places_2024/us_places_2024/us_places_2024_merged.shp"  
 
 # Drop extra columns immediately
 drop_county_cols = ['STATEFP','COUNTYFP','COUNTYNS','GEOIDFQ','NAMELSAD','LSAD','CLASSFP','MTFCC','CSAFP','CBSAFP','METDIVFP','FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON']
 drop_state_cols = ['STATENS','GEOID','GEOIDFQ','LSAD','MTFCC','FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON']
-drop_place_cols = ['PLACENS','GEOIDFQ','NAMELSAD','LSAD','CLASSFP','PCICBSA','MTFCC',
-                   'FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON']
+drop_place_cols = ['STATEFP','PLACENS','GEOIDFQ','NAMELSAD','LSAD','CLASSFP','PCICBSA','MTFCC','FUNCSTAT','ALAND','AWATER','INTPTLAT','INTPTLON','STATE_ABBR']
 
 counties = gpd.read_file(county_shp).to_crs("EPSG:4326").drop(columns=drop_county_cols)
 states = gpd.read_file(state_shp).to_crs("EPSG:4326").drop(columns=drop_state_cols)
 places = gpd.read_file(place_shp).to_crs("EPSG:4326").drop(columns=drop_place_cols)
 
-
 JOB_KEYWORDS = ["hiring", "job", "click", "apply", "career", "vacancy", "position", "recruit", "opportunity"]
 pattern = re.compile(r"\b(" + "|".join(JOB_KEYWORDS) + r")\b", flags=re.IGNORECASE)
+
+
+
+
+
 
 def process_texts(texts):
     """
@@ -97,7 +99,7 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
     Reads a large CSV file in chunks, applies NER using spaCy, and writes the results to a new CSV.
     """
     reader = pd.read_csv(input_path, chunksize=chunksize)
-
+    
     first_us, first_non_us = True, True
     for i, chunk in enumerate(reader):
         print(f"Processing chunk {i+1}...")
@@ -119,6 +121,8 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
         if chunk.empty:
             continue
 
+
+        
         chunk['cleaned'] = chunk[text_column].apply(lambda x: clean_tweet(x, bad_words))
         # Drop empty cleaned tweets
         chunk = chunk[chunk['cleaned'] != '']
@@ -147,27 +151,24 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
         geo_with_counties['fips'] = geo_with_counties['GEOID']
         geo_with_counties = geo_with_counties.drop(columns=['index_right','NAME','GEOID'])
 
+        # === Spatial join with states ===
+        geo_with_states = gpd.sjoin(geo_with_counties, states, how="left", predicate="intersects")
+        geo_with_states['state_name'] = geo_with_states['NAME']
+        geo_with_states['state_abbr'] = geo_with_states['STUSPS']
+        geo_with_states['state_id'] = geo_with_states['STATEFP']
 
-          # === Spatial join with places/cities ===
-        geo_with_places = gpd.sjoin(geo_with_counties, places, how="left", predicate="intersects")
+        # Drop unneeded columns
+        geo_with_states = geo_with_states.drop(columns=[
+             'index_right', 'NAME', 'STUSPS','STATEFP'])
+
+        # === Spatial join: Places last (intersects) ===
+        geo_with_places = gpd.sjoin(geo_with_states, places, how="left", predicate="intersects")
         geo_with_places['city_name'] = geo_with_places['NAME']
         geo_with_places['place_fips'] = geo_with_places['PLACEFP']
         geo_with_places['place_geoid'] = geo_with_places['GEOID']
-        geo_with_places = geo_with_places.drop(columns=['index_right', 'NAME', 'GEOID'])
-
-            # === Spatial join with states ===
-        geo_with_states = gpd.sjoin(geo_with_places, states, how="left", predicate="intersects")
-        geo_with_states['state_name'] = geo_with_states['NAME']
-        geo_with_states['state_abbr'] = geo_with_states['STUSPS']
-        # Handle possible suffixes from sjoin
-        state_fp_col = next((c for c in geo_with_states.columns if c.startswith("STATEFP")), None)
-        geo_with_states['state_id'] = geo_with_states[state_fp_col] if state_fp_col else None
+        geo_with_places = geo_with_places.drop(columns=['index_right','NAME','GEOID','geometry'])
 
 
-        # Drop only existing columns to avoid KeyError
-        cols_to_drop = ['geometry', 'index_right', 'NAME', 'STUSPS', 'STATEFP']
-        geo_with_states = geo_with_states.drop(columns=[c for c in cols_to_drop if c in geo_with_states.columns])
-        geo_with_states = geo_with_states.drop(columns=[c for c in ['STATEFP_right','STATEFP_left'] if c in geo_with_states.columns])
 
                 # === Handle neighborhoods ===
         def extract_neighborhood(row):
@@ -175,27 +176,22 @@ def process_large_csv(input_path, us_output_path, non_us_output_path, text_colum
                 return row.get('name', None)
             return None
 
-        geo_with_states['neighborhood'] = geo_with_states.apply(extract_neighborhood, axis=1)
+        geo_with_places['neighborhood'] = geo_with_places.apply(extract_neighborhood, axis=1)
 
 
-
+        
         # Separate US and non-US tweets
-        us_tweets = geo_with_states.dropna(subset=["state_name"])
+        us_tweets = geo_with_places.dropna(subset=["state_name"])
         if not us_tweets.empty:
             print("removing job mentions")
             us_tweets = us_tweets[~us_tweets["cleaned"].str.contains(pattern, na=False)]
-        non_us_tweets = geo_with_states[geo_with_states["state_name"].isna()]
+        non_us_tweets = geo_with_places[geo_with_places["state_name"].isna()]
 
-        print(f"   US tweets: {len(us_tweets)}")
+        print(f"🇺🇸 US tweets: {len(us_tweets)}")
         print(f"Non-US tweets: {len(non_us_tweets)}")
 
 
         # Write US tweets
-        if not us_tweets.empty:
-            us_tweets.to_csv(us_output_path, index=False, header=first_us, mode="a")
-            first_us = False
-
-         # Write US tweets
         if not us_tweets.empty:
             us_tweets.to_csv(us_output_path, index=False, header=first_us, mode="a")
             first_us = False
@@ -212,7 +208,7 @@ if __name__ == "__main__":
     if not os.path.exists(input_file):
        print(f"The input file doesn not exist {input_file}")
        sys.exit(1)
-
+    
     name_without_ext = Path(input_file).stem
     us_output_path = f"us_tweets_NER_{name_without_ext}.csv"
     non_us_output_path=f"non_us_tweets_NER_{name_without_ext}.csv"
@@ -221,6 +217,7 @@ if __name__ == "__main__":
 
     process_large_csv(input_file, us_output_path=us_output_path, non_us_output_path=non_us_output_path, text_column="tweet_text", chunksize=100000)
     # print(f"Saved filtered data to {output_file}")
+
 
 
 
