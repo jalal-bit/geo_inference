@@ -24,7 +24,7 @@ def load_and_prepare(path):
 
 def compute_stats(df):
     # === Group by state ===
-    state_stats = df.groupby(['state_name', 'state_id']).agg(
+    state_stats = df.groupby(['state_name']).agg(
         total=('cleaned', 'count'),
         count_with_city=('has_city', 'sum'),
         count_with_neigh=('has_neigh', 'sum'),
@@ -34,7 +34,7 @@ def compute_stats(df):
     state_stats['pct_with_neigh'] = (state_stats['count_with_neigh'] / state_stats['total'] * 100).round(2)
 
     # === Group by state + county ===
-    county_stats = df.groupby(['state_name', 'state_id', 'county_name', 'fips']).agg(
+    county_stats = df.groupby(['state_name', 'county_name', 'fips']).agg(
         total=('cleaned', 'count'),
         count_with_city=('has_city', 'sum'),
         count_with_neigh=('has_neigh', 'sum'),
