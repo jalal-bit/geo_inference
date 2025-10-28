@@ -131,7 +131,7 @@ def main_cli():
     else:
         train_df_us=train_df
 
-    train_df_us_unique=train_df_us.drop_duplicates(subset=['cleaned'], keep='first')
+    train_df_us_unique=train_df_us.drop_duplicates(subset=['fips','cleaned'], keep='first')
 
     county_counts = train_df_us_unique.groupby(['fips', 'county_name']).size().reset_index(name='count')
 

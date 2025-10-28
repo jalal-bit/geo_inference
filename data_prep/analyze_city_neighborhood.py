@@ -64,8 +64,11 @@ if __name__ == "__main__":
     if not Path(input_file).exists():
         print(f"❌ Input file does not exist: {input_file}")
         exit(1)
+    
+    
 
     df = load_and_prepare(input_file)
+    df=df.drop_duplicates(subset=['fips','cleaned'], keep='first')
 
     base = Path(input_file).stem  # filename without extension
 
