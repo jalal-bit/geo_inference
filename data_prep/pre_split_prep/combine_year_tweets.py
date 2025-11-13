@@ -11,8 +11,11 @@ def combine_tweets(root_folder, start_year, end_year):
     selected_cols = [
         "cleaned", "country", "country_code", "state_name", "state_id",
         "county_name", "fips", "city_name", "place_fips", "neighborhood",
-        "name", "place_geoid", "REGION", "DIVISION", "state_abbr", "created_at", "geo_lat", "geo_long"
+        "name", "place_geoid", "REGION", "DIVISION", "state_abbr", "created_at", "geo_lat", "geo_long","tweet_id","tweet_text"
     ]
+
+
+    
 
     us_tweets = []
     non_us_tweets = []
