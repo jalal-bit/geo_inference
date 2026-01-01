@@ -6,6 +6,8 @@ from pathlib import Path
 import string
 import numpy as np
 import random
+from rapidfuzz import fuzz
+
 # -------------------------------
 # Stopwords and utilities
 # -------------------------------
@@ -14,6 +16,44 @@ STOPWORDS = {
     "is", "it", "he", "she", "we", "they", "be", "or", "as", "la", "le",
     "el", "un", "una", "no", "not"
 }
+
+KEEP_KEYWORDS = set([
+    # Administrative / Settlement (most important)
+     "neighborhood",
+
+    # Built Environment / Human Structures (most important)
+     "school", "university", "college", "library", "museum",
+    "stadium", "arena", "theater", "airport", "bridge", "hospital", "hotel", "restaurant", "office",
+
+    # Natural Features / Geography (keep full)
+    "mountain","hill","volcano","canyon","valley","gorge","cliff","ridge",
+    "river","creek","stream","brook","spring","waterfall","lake","pond",
+    "bay","gulf","cove","inlet","shore","coast","beach","island","peninsula",
+    "forest","woods","jungle","rainforest","swamp","marsh","wetland",
+    "desert","plain","prairie","plateau","meadow","steppe","tundra",
+    "park","reserve","refuge","conservation area","national park",
+    "lookout","trail","viewpoint","observatory","telescope","cave",
+    "glacier","ice field","hot spring","crater","pass","basin","benchmark","peak",
+
+    # Religious / Cultural Sites
+    "church","temple","mosque","synagogue","shrine","monastery","pagoda","sanctuary",
+
+    # Recreation / Sports / Entertainment
+    "fitness center","sports complex","rink","ice rink",
+    "golf course","swimming pool","skate park","climbing gym","arena","stadium",
+
+    # Outdoor / Tourism
+    "campground","campsite","picnic area","rest area","scenic overlook",
+    "trailhead","hiking trail","heritage site","visitor center","lookout","observation deck",
+
+    # Infrastructure / Utilities
+    "power plant","solar farm","wind farm","pipeline","reservoir","water tower","sewage plant",
+    "transmission station","substation","data center","warehouse",
+
+    # Miscellaneous / Contextual
+    "intersection","crossroads","landmark","facility","premises","compound","observatory"
+])
+
 
 # -------------------------------
     # Regex for @mentions (stop at comma or line end)
@@ -61,15 +101,67 @@ def normalize_text(text):
     text = re.sub(r'\s+', ' ', text)
     return text.strip(string.punctuation + " ")
 
-def match_keyword_in_text(keyword, text):
-    """Return True if keyword (with spaces normalized) exists in text, including hashtags."""
+# def match_keyword_in_text(keyword, text):
+#     """Return True if keyword (with spaces normalized) exists in text, including hashtags."""
+#     kw_norm = " ".join(keyword.lower().split())
+#     text_norm = normalize_text(text)
+#     if kw_norm in text_norm:
+#         return True
+#     if f"#{kw_norm.replace(' ', '')}" in text_norm.replace(' ', ''):
+#         return True
+#     return False
+
+# def match_keyword_in_text(keyword, text, threshold=80):
+#     """
+#     Return True if keyword approximately exists in text,
+#     considering capitalization, minor typos, and hashtags.
+#     Uses fuzzy partial matching.
+#     """
+#     kw_norm = " ".join(keyword.lower().split())
+#     text_norm = normalize_text(text)
+
+#     # direct substring or hashtag match
+#     if kw_norm in text_norm or f"#{kw_norm.replace(' ', '')}" in text_norm.replace(' ', ''):
+#         return True
+
+#     # fuzzy partial match
+#     score = fuzz.partial_ratio(kw_norm, text_norm)
+#     if score >= threshold:
+#         return True
+
+#     # fuzzy hashtag-like version
+#     score_hash = fuzz.partial_ratio(kw_norm.replace(" ", ""), text_norm.replace(" ", ""))
+#     return score_hash >= threshold
+
+
+def match_keyword_in_text(keyword, text, base_threshold=80):
+    """
+    Return True if keyword approximately exists in text,
+    considering capitalization, minor typos, and hashtags.
+    Uses fuzzy partial matching.
+    """
     kw_norm = " ".join(keyword.lower().split())
     text_norm = normalize_text(text)
-    if kw_norm in text_norm:
+
+    # Direct substring or hashtag match
+    if kw_norm in text_norm or f"#{kw_norm.replace(' ', '')}" in text_norm.replace(' ', ''):
         return True
-    if f"#{kw_norm.replace(' ', '')}" in text_norm.replace(' ', ''):
+
+    # Dynamic threshold: shorter keywords → lower threshold for higher sensitivity
+    threshold = base_threshold
+    if len(kw_norm) <= 5:
+        threshold = max(50, base_threshold - 20)  # small keywords: lower threshold
+
+    # Fuzzy partial match
+    score = fuzz.partial_ratio(kw_norm, text_norm)
+    if score >= threshold:
         return True
-    return False
+
+    # Fuzzy hashtag-like version
+    score_hash = fuzz.partial_ratio(kw_norm.replace(" ", ""), text_norm.replace(" ", ""))
+    return score_hash >= threshold
+
+
 
 def adaptive_rate(base_small, base_large, total):
     """Interpolate sampling rate between small and large datasets."""
@@ -251,11 +343,25 @@ def main():
             row["freq_sum"] = sum(keyword_counter[kw] for kw in matched)
             mentions_rows.append(row)
         else:
-            hashtags = pattern_hash.findall(text) 
-            hashtag_counter.update([h.lower() for h in hashtags]) 
-            row["keywords"] = ""
-            row["freq_sum"] = ""
-            no_mentions_rows.append(row)
+        #     hashtags = pattern_hash.findall(text) 
+        #     hashtag_counter.update([h.lower() for h in hashtags]) 
+        #     row["keywords"] = ""
+        #     row["freq_sum"] = ""
+        #     no_mentions_rows.append(row)
+
+        # else:
+            # Keep tweet if it contains any of the predefined keywords
+            text_lower = normalize_text(text)
+            if any(kw in text_lower for kw in KEEP_KEYWORDS):
+                row["keywords"] = ""
+                row["freq_sum"] = ""
+                mentions_rows.append(row)  # treat it like a mention for keeping
+            else:
+                hashtags = pattern_hash.findall(text) 
+                hashtag_counter.update([h.lower() for h in hashtags]) 
+                row["keywords"] = ""
+                row["freq_sum"] = ""
+                no_mentions_rows.append(row)
 
 
 
