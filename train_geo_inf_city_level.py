@@ -137,7 +137,7 @@ class PromptTargetCSVDataset(Dataset):
     CSV must have columns: prompt, target
     target is the gold JSON string.
     """
-    def __init__(self, csv_path: str, prompt_col="prompt", target_col="target"):
+    def __init__(self, csv_path: str, prompt_col="prompt", target_col="target_json"):
         self.csv_path = str(csv_path)
         df = pd.read_csv(self.csv_path, dtype=str)
 
@@ -606,7 +606,7 @@ def parse_args():
     p.add_argument("--train_csv", type=str, required=True)
     p.add_argument("--val_csv", type=str, required=True)
     p.add_argument("--prompt_col", type=str, default="prompt")
-    p.add_argument("--target_col", type=str, default="target")
+    p.add_argument("--target_col", type=str, default="target_json")
 
     p.add_argument("--tune_method", type=str, default="full", choices=["full", "lora"])
 
