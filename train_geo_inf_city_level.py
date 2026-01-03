@@ -209,8 +209,8 @@ class TrainCollatorTokenize:
             input_ids_list.append(torch.tensor(ids, dtype=torch.long))
             labels_list.append(torch.tensor(labels, dtype=torch.long))
 
-        input_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=self.tok.pad_token_id)
-        labels = pad_sequence(labels_list, batch_first=True, padding_value=-100)
+        input_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=self.tok.pad_token_id,padding_side="left")
+        labels = pad_sequence(labels_list, batch_first=True, padding_value=-100,padding_side="left")
         attention_mask = (input_ids != self.tok.pad_token_id).long()
 
         return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
@@ -241,7 +241,7 @@ class EvalCollatorTokenize:
             prompts.append(prompt)
             targets.append(target)
 
-        input_ids = pad_sequence(prompt_ids_list, batch_first=True, padding_value=self.tok.pad_token_id)
+        input_ids = pad_sequence(prompt_ids_list, batch_first=True, padding_value=self.tok.pad_token_id,padding_side="left")
         attention_mask = (input_ids != self.tok.pad_token_id).long()
 
         return {"input_ids": input_ids, "attention_mask": attention_mask, "prompts": prompts, "targets": targets}
