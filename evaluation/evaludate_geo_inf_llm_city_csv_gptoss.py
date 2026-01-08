@@ -2,24 +2,10 @@
 """
 City-level evaluation (CSV, no pretokenization) for instruction->JSON outputs.
 
-UPDATED: Uses 4 GPUs for 120B inference by sharding the model across GPUs with
-Transformers device_map="auto" (model parallel), NOT DDP.
-
-Run on a node with 4 visible GPUs:
-  CUDA_VISIBLE_DEVICES=0,1,2,3 python eval_city_json_4gpu.py ...
-
-CSV must include columns:
-  - prompt
-  - target_json (gold JSON string)
-
-Supports:
-  - base model
-  - full FT checkpoint saved with save_pretrained
-  - LoRA adapter checkpoint (PEFT) saved with save_pretrained, via --use_lora_adapter
-
-Loads checkpoint from:
-  checkpoints/<model_name>_<checkpoint_path>/best
-(where checkpoint_path is the TIMESTAMP you used in training)
+UPDATED (minimal):
+- Keeps 4-GPU sharded loading via device_map="auto"
+- Adds Accelerator flow (like first code) for printing / main-process logic / sync
+- IMPORTANT: run with ONE process. Model uses 4 GPUs because device_map shards it.
 """
 
 import os
@@ -32,6 +18,9 @@ from typing import List, Dict, Any, Optional
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+from accelerate import Accelerator
+from accelerate.utils import gather_object  # kept for similarity; with 1 proc it’s effectively a no-op
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from dotenv import load_dotenv
@@ -74,7 +63,6 @@ class PromptTargetCSVDataset(Dataset):
 
 # --------------------------
 # Collator (tokenize prompt only)
-# Uses tokenizer.pad which respects tokenizer.padding_side="left"
 # --------------------------
 class EvalCollatorTokenize:
     def __init__(self, tokenizer, max_length=512):
@@ -226,7 +214,6 @@ def compute_validation_metrics_city_json(pred_texts: List[str], gold_texts: List
 # Model loading (4-GPU sharded)
 # --------------------------
 def _build_max_memory(per_gpu_gb: int = 78) -> Dict[int, str]:
-    # Keep a bit of headroom under 80GB for safety.
     n = torch.cuda.device_count()
     return {i: f"{per_gpu_gb}GiB" for i in range(n)}
 
@@ -249,8 +236,8 @@ def load_model_for_eval(
         return AutoModelForCausalLM.from_pretrained(
             path_or_name,
             torch_dtype="auto",
-            device_map="auto",            # <-- shards across all visible GPUs
-            max_memory=max_memory,        # <-- enforce per-GPU budget
+            device_map="auto",        # <-- shards across all visible GPUs
+            max_memory=max_memory,
             low_cpu_mem_usage=True,
             token=hf_token,
         )
@@ -277,14 +264,12 @@ def load_model_for_eval(
 
 
 # --------------------------
-# Eval loop (single-process, model-parallel)
+# Eval loop (Accelerator-style, but single-process sharded model)
 # --------------------------
-def evaluate(model, loader, tokenizer, max_new_tokens=25, log_first_batch=True):
+def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first_batch=True):
     model.eval()
 
-    # For sharded model, send inputs to the "first" CUDA device.
-    first_device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-
+    # For sharded model, accelerator.device will usually be cuda:0 (fine for input placement).
     gen_cfg = {"num_beams": 1, "do_sample": False, "max_new_tokens": max_new_tokens}
 
     all_pred, all_gold = [], []
@@ -292,8 +277,8 @@ def evaluate(model, loader, tokenizer, max_new_tokens=25, log_first_batch=True):
 
     with torch.no_grad():
         for step, batch in enumerate(loader):
-            input_ids = batch["input_ids"].to(first_device, non_blocking=True)
-            attention_mask = batch["attention_mask"].to(first_device, non_blocking=True)
+            input_ids = batch["input_ids"].to(accelerator.device, non_blocking=True)
+            attention_mask = batch["attention_mask"].to(accelerator.device, non_blocking=True)
 
             gen_out = model.generate(
                 input_ids=input_ids,
@@ -308,19 +293,29 @@ def evaluate(model, loader, tokenizer, max_new_tokens=25, log_first_batch=True):
             ]
             local_gold = batch["targets"]
 
-            all_pred.extend(local_pred)
-            all_gold.extend(local_gold)
+            # With 1 process, gather_object is effectively identity; kept for compatibility.
+            gathered_preds = gather_object(local_pred)
+            gathered_golds = gather_object(local_gold)
 
-            if log_first_batch and step == 0 and local_pred:
-                print("\n[Eval Sample]")
-                print("PROMPT:", batch["prompts"][0][:250].replace("\n", " \\n "))
-                print("PRED  :", local_pred[0])
-                print("GOLD  :", local_gold[0])
+            if accelerator.is_main_process:
+                # gather_object returns a list in single-process; extend directly
+                all_pred.extend(gathered_preds)
+                all_gold.extend(gathered_golds)
 
-            if step % 200 == 0 or step == total_steps - 1:
-                print(f"Step {step+1}/{total_steps}")
+                if log_first_batch and step == 0 and local_pred:
+                    accelerator.print("\n[Eval Sample]")
+                    accelerator.print("PROMPT:", batch["prompts"][0][:250].replace("\n", " \\n "))
+                    accelerator.print("PRED  :", local_pred[0])
+                    accelerator.print("GOLD  :", local_gold[0])
 
-    metrics = compute_validation_metrics_city_json(all_pred, all_gold)
+                if step % 200 == 0 or step == total_steps - 1:
+                    accelerator.print(f"Step {step+1}/{total_steps}")
+
+    metrics = {}
+    if accelerator.is_main_process:
+        metrics = compute_validation_metrics_city_json(all_pred, all_gold)
+
+    accelerator.wait_for_everyone()
     return metrics
 
 
@@ -346,13 +341,15 @@ def main():
 
     args = p.parse_args()
 
+    accelerator = Accelerator(mixed_precision="bf16")
+
     load_dotenv()
     hf_token = os.getenv("HF_TOKEN", None)
     wandb_key = os.getenv("WANDB_API_KEY", None)
 
-    if torch.cuda.device_count() < 2:
-        print(f"WARNING: only {torch.cuda.device_count()} CUDA device(s) visible. "
-              f"To use 4 GPUs, request them from SLURM and ensure CUDA_VISIBLE_DEVICES has 4 ids.")
+    if torch.cuda.device_count() < 4:
+        accelerator.print(f"WARNING: only {torch.cuda.device_count()} GPU(s) visible. "
+                          f"Request 4 GPUs from SLURM and ensure CUDA_VISIBLE_DEVICES has 4 ids.")
 
     ds = PromptTargetCSVDataset(args.test_csv, prompt_col=args.prompt_col, target_col=args.target_col)
 
@@ -369,35 +366,42 @@ def main():
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, collate_fn=collator,
                         num_workers=2, pin_memory=True)
 
+    # IMPORTANT: do NOT prepare(model) here (would wrap for DDP).
+    loader = accelerator.prepare(loader)
+
     out_dir = Path(args.checkpoint_folder) / (
         f"{args.model_name}_{args.checkpoint_path}/best" if args.checkpoint_path else f"{args.model_name}_base"
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if accelerator.is_main_process:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.wandb_project and wandb_key:
-        wandb.login(key=wandb_key)
-        run_name = f"{args.model_name}_{args.checkpoint_path or 'base'}_{args.run_note or 'eval'}"
-        wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
+        if args.wandb_project and wandb_key:
+            wandb.login(key=wandb_key)
+            run_name = f"{args.model_name}_{args.checkpoint_path or 'base'}_{args.run_note or 'eval'}"
+            wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
 
-    metrics = evaluate(model, loader, tokenizer, max_new_tokens=args.max_new_tokens)
+    metrics = evaluate(model, loader, tokenizer, accelerator, max_new_tokens=args.max_new_tokens)
 
-    print("\n=== METRICS ===")
-    for k, v in metrics.items():
-        print(f"{k}: {v}")
+    if accelerator.is_main_process:
+        accelerator.print("\n=== METRICS ===")
+        for k, v in metrics.items():
+            accelerator.print(f"{k}: {v}")
 
-    fname = f"test_metrics_{args.run_note}.json" if args.run_note else "test_metrics.json"
-    fpath = out_dir / fname
-    if fpath.exists():
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        fpath = out_dir / (fname.replace(".json", f"_{ts}.json"))
+        fname = f"test_metrics_{args.run_note}.json" if args.run_note else "test_metrics.json"
+        fpath = out_dir / fname
+        if fpath.exists():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fpath = out_dir / (fname.replace(".json", f"_{ts}.json"))
 
-    with open(fpath, "w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2)
-    print("Saved:", fpath)
+        with open(fpath, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2)
+        accelerator.print("Saved:", fpath)
 
-    if args.wandb_project and wandb_key:
-        wandb.log({f"test/{k}": v for k, v in metrics.items()})
-        wandb.finish()
+        if args.wandb_project and wandb_key:
+            wandb.log({f"test/{k}": v for k, v in metrics.items()})
+            wandb.finish()
+
+    accelerator.wait_for_everyone()
 
 
 if __name__ == "__main__":
