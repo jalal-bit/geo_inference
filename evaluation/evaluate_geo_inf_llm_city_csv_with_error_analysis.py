@@ -30,6 +30,10 @@ ADDED (error analysis; does not change evaluation metrics):
           - test_confusion_state.csv
           - test_confusion_county_topK.csv
           - test_confusion_city_topK.csv
+
+ADDED (run subfolder; minimal change):
+  - Creates a subfolder named: <test_csv_stem>_<timestamp>
+    and writes ALL results there.
 """
 
 import os
@@ -240,17 +244,10 @@ def compute_validation_metrics_city_json(pred_texts: List[str], gold_texts: List
 # --------------------------
 # Error analysis helpers (ADDED)
 # --------------------------
-def _sorted_list(s: set) -> List[str]:
-    return sorted(s)
-
 def _set_to_pipe(s: set) -> str:
     return "|".join(sorted(s))
 
 def _safe_extract_text_from_prompt(prompt: str) -> str:
-    """
-    Best-effort extraction of the quoted Text: "...." part, so error CSVs show the actual post.
-    If not found, returns empty string (we keep prompt too).
-    """
     if not isinstance(prompt, str):
         return ""
     needle = 'Text: "'
@@ -263,11 +260,6 @@ def _safe_extract_text_from_prompt(prompt: str) -> str:
     return prompt[i + len(needle):j]
 
 def _entity_prf_by_item(pred_sets: List[set], gold_sets: List[set]) -> pd.DataFrame:
-    """
-    Per-item PRF for a single entity type (e.g., city).
-    Returns rows: item, support, tp, fp, fn, precision, recall, f1
-    support = #examples where item is in gold
-    """
     tp = Counter()
     fp = Counter()
     fn = Counter()
@@ -310,10 +302,6 @@ def _entity_prf_by_item(pred_sets: List[set], gold_sets: List[set]) -> pd.DataFr
     return df.sort_values(by=["support", "f1", "item"], ascending=[False, True, True]).reset_index(drop=True)
 
 def _top1_label(s: set, empty_label: str = "__EMPTY__") -> str:
-    """
-    Deterministic 'top-1' label for confusion matrices: choose first sorted token, else __EMPTY__.
-    This avoids cartesian expansion and keeps matrix interpretable.
-    """
     if not s:
         return empty_label
     return sorted(s)[0]
@@ -326,17 +314,12 @@ def run_error_analysis(
     gold_texts: List[str],
     top_k_labels: int = 50,
 ):
-    """
-    Writes error analysis artifacts into out_dir.
-    This function does NOT modify how metrics are computed; it uses the same parsing logic.
-    """
     suffix = f"_{run_note}" if run_note else ""
     base = f"test_error_analysis{suffix}"
 
     preds = [parse_json_struct(x) for x in pred_texts]
     golds = [parse_gold_target_json(x) for x in gold_texts]
 
-    # Row-level table
     rows = []
     for i in range(len(preds)):
         p = preds[i]
@@ -367,7 +350,6 @@ def run_error_analysis(
     out_rows = out_dir / f"{base}_rows.csv"
     df_rows.to_csv(out_rows, index=False)
 
-    # Error subsets
     def _save_subset(mask, name):
         df_sub = df_rows[mask].copy()
         out_path = out_dir / f"{base}_{name}.csv"
@@ -386,7 +368,6 @@ def run_error_analysis(
     ci_err_path, ci_err_n = _save_subset(df_rows["city_exact"] == 0, "city_errors")
     all_err_path, all_err_n = _save_subset(df_rows["all_exact"] == 0, "full_errors")
 
-    # Per-item PRF tables
     df_state_item = _entity_prf_by_item(p_state, g_state)
     df_county_item = _entity_prf_by_item(p_county, g_county)
     df_city_item = _entity_prf_by_item(p_city, g_city)
@@ -398,12 +379,10 @@ def run_error_analysis(
     df_county_item.to_csv(out_county_item, index=False)
     df_city_item.to_csv(out_city_item, index=False)
 
-    # Confusion matrices (optional: sklearn)
     conf_paths = {}
     try:
         from sklearn.metrics import confusion_matrix  # type: ignore
 
-        # State confusion: top-1 label per row
         y_true_state = [_top1_label(s) for s in g_state]
         y_pred_state = [_top1_label(s) for s in p_state]
         labels_state = sorted(set(y_true_state) | set(y_pred_state))
@@ -413,24 +392,21 @@ def run_error_analysis(
         df_cm_state.to_csv(out_cm_state)
         conf_paths["state"] = out_cm_state
 
-        # County / City: build Top-K labels from gold support (more stable)
         def _topk_labels(g_sets: List[set], k: int) -> List[str]:
             c = Counter()
             for s in g_sets:
                 for it in s:
                     c[it] += 1
             top = [it for it, _ in c.most_common(k)]
-            # include EMPTY label
             return ["__EMPTY__"] + top
+
+        def _map_label(x: str, allowed: set) -> str:
+            return x if x in allowed else "__OTHER__"
 
         # County
         y_true_county = [_top1_label(s) for s in g_county]
         y_pred_county = [_top1_label(s) for s in p_county]
         labels_county = _topk_labels(g_county, top_k_labels)
-        # map everything outside topK to __OTHER__
-        def _map_label(x: str, allowed: set) -> str:
-            return x if x in allowed else "__OTHER__"
-
         allowed_county = set(labels_county)
         y_true_county_m = [_map_label(x, allowed_county) for x in y_true_county]
         y_pred_county_m = [_map_label(x, allowed_county) for x in y_pred_county]
@@ -456,10 +432,8 @@ def run_error_analysis(
         conf_paths["city"] = out_cm_city
 
     except Exception:
-        # sklearn missing; skip
         conf_paths = {}
 
-    # Summary TXT
     out_txt = out_dir / f"{base}_summary.txt"
     lines = []
     lines.append("ERROR ANALYSIS SUMMARY")
@@ -472,7 +446,6 @@ def run_error_analysis(
     lines.append(f"  City errors:   {ci_err_n:,}  (saved: {ci_err_path.name})")
     lines.append(f"  Full errors:   {all_err_n:,} (saved: {all_err_path.name})\n")
 
-    # Most missed / hallucinated (by entity)
     def _miss_hall(p_sets: List[set], g_sets: List[set]) -> Tuple[Counter, Counter]:
         missed = Counter()
         halluc = Counter()
@@ -563,7 +536,6 @@ def load_model_for_eval(
         )
         print(f"Loaded base model: {model_name}")
 
-    # LLaMA-family pad safety
     if "llama" in model_name.lower():
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -598,7 +570,7 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first
                 **gen_cfg
             )
 
-            cutoff = input_ids.size(1)  # padded prompt length
+            cutoff = input_ids.size(1)
             local_pred = [
                 tokenizer.decode(gen_out[i, cutoff:], skip_special_tokens=True)
                 for i in range(gen_out.size(0))
@@ -659,7 +631,6 @@ def main():
     p.add_argument("--wandb_project", default=None)
     p.add_argument("--run_note", default=None)
 
-    # ADDED (error analysis controls; defaults preserve current behavior)
     p.add_argument("--error_analysis", action="store_true", help="Write error analysis CSV/TXT files.")
     p.add_argument("--confusion_top_k", type=int, default=50, help="Top-K labels for county/city confusion matrices (requires sklearn).")
 
@@ -686,18 +657,27 @@ def main():
 
     model, loader = accelerator.prepare(model, loader)
 
-    out_dir = Path(args.checkpoint_folder) / (
+    # Base output dir (unchanged)
+    base_out_dir = Path(args.checkpoint_folder) / (
         f"{args.model_name}_{args.checkpoint_path}/best" if args.checkpoint_path else f"{args.model_name}_base"
     )
+
+    # --------------------------
+    # ADDED: per-test run subfolder (test_csv stem + timestamp)
+    # --------------------------
+    ts_run = datetime.now().strftime("%Y%m%d_%H%M%S")
+    test_stem = Path(args.test_csv).stem
+    out_dir = base_out_dir / f"{test_stem}_{ts_run}"
+
     if accelerator.is_main_process:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         if args.wandb_project and wandb_key:
             wandb.login(key=wandb_key)
-            run_name = f"{args.model_name}_{args.checkpoint_path or 'base'}_{args.run_note or 'eval'}"
+            run_name = f"{args.model_name}_{args.checkpoint_path or 'base'}_{args.run_note or 'eval'}_{test_stem}_{ts_run}"
             wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
 
-    # NOTE: metrics computation is unchanged; we just additionally return prompts/preds/golds
+
     metrics, all_prompts, all_pred, all_gold = evaluate(
         model, loader, tokenizer, accelerator, max_new_tokens=args.max_new_tokens
     )
@@ -707,7 +687,7 @@ def main():
         for k, v in metrics.items():
             print(f"{k}: {v}")
 
-        # save metrics json (unchanged)
+        # save metrics json (same logic, but now inside out_dir)
         fname = f"test_metrics_{args.run_note}.json" if args.run_note else "test_metrics.json"
         fpath = out_dir / fname
         if fpath.exists():
@@ -718,7 +698,6 @@ def main():
             json.dump(metrics, f, indent=2)
         print("Saved:", fpath)
 
-        # ADDED: error analysis outputs (only if enabled)
         if args.error_analysis:
             artifacts = run_error_analysis(
                 out_dir=out_dir,
@@ -734,8 +713,9 @@ def main():
 
         if args.wandb_project and wandb_key:
             wandb.log({f"test/{k}": v for k, v in metrics.items()})
-            # Optional: log file paths as W&B artifacts? (left unchanged to avoid behavior change)
             wandb.finish()
+
+        print("All results saved under:", out_dir)
 
     accelerator.wait_for_everyone()
 
