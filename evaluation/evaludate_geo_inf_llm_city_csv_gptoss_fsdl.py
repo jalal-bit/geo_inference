@@ -11,6 +11,11 @@ ADDED (from your 2nd code; minimal changes):
 - Optional error analysis outputs (CSV/TXT + optional confusion matrices)
 - Per-test run subfolder: <test_csv_stem>_<timestamp>
 - W&B run name includes test_csv stem + timestamp (so test data name is reflected)
+
+FIXED (minimal changes for your runtime error):
+- In FSDP load: low_cpu_mem_usage=False and torch_dtype=bfloat16 (avoid unallocated/meta tensors)
+- In FSDP eval: DO NOT unwrap model for generate(); use wrapped model
+- (Optional but included, minimal) In FSDP: disable use_cache to avoid sharded-cache edge cases
 """
 
 import os
@@ -499,11 +504,12 @@ def load_model_for_eval(
     def _load_base(path_or_name: str):
         if fsdp:
             # FSDP: multi-process sharding, do NOT use device_map
+            # FIX: avoid low_cpu_mem_usage=True (can leave params unallocated under FSDP)
             return AutoModelForCausalLM.from_pretrained(
                 path_or_name,
-                torch_dtype="auto",
+                torch_dtype=torch.bfloat16,
                 device_map=None,
-                low_cpu_mem_usage=True,
+                low_cpu_mem_usage=False,
                 token=hf_token,
             )
         else:
@@ -545,8 +551,12 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first
     all_pred, all_gold, all_prompts = [], [], []
     total_steps = len(loader)
 
-    # If FSDP-wrapped, use unwrapped for generation
-    gen_model = accelerator.unwrap_model(model) if fsdp else model
+    # FIX: under FSDP, do NOT unwrap for generate()
+    gen_model = model
+
+    # optional stability tweak for FSDP generation
+    if fsdp and getattr(gen_model, "config", None) is not None:
+        gen_model.config.use_cache = False
 
     with torch.no_grad():
         for step, batch in enumerate(loader):
@@ -572,7 +582,6 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first
             gathered_prompts = gather_object(local_prompts)
 
             if accelerator.is_main_process:
-                # gathered_* are lists per process; flatten if needed
                 if gathered_preds and isinstance(gathered_preds[0], list):
                     for sub in gathered_preds:
                         all_pred.extend(sub)
@@ -627,7 +636,7 @@ def main():
     p.add_argument("--wandb_project", default=None)
     p.add_argument("--run_note", default=None)
 
-    # ADDED: error analysis flags
+    # error analysis
     p.add_argument("--error_analysis", action="store_true", help="Write error analysis CSV/TXT files.")
     p.add_argument("--confusion_top_k", type=int, default=50, help="Top-K labels for county/city confusion matrices (requires sklearn).")
 
@@ -689,12 +698,12 @@ def main():
     else:
         loader = accelerator.prepare(loader)
 
-    # Base dir (same as before)
+    # Base dir
     base_out_dir = Path(args.checkpoint_folder) / (
         f"{args.model_name}_{args.checkpoint_path}/best" if args.checkpoint_path else f"{args.model_name}_base"
     )
 
-    # ADDED: consistent per-test run subfolder (broadcast timestamp for multi-proc)
+    # consistent per-test run subfolder (broadcast timestamp for multi-proc)
     ts_run = datetime.now().strftime("%Y%m%d_%H%M%S")
     ts_list = [ts_run]
     try:
@@ -711,7 +720,6 @@ def main():
 
         if args.wandb_project and wandb_key:
             wandb.login(key=wandb_key)
-            # ADDED: include test_stem + ts_run in run name (so test data is reflected)
             run_name = f"{args.model_name}_{args.checkpoint_path or 'base'}_{args.run_note or 'eval'}_{test_stem}_{ts_run}"
             wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
 
@@ -738,7 +746,6 @@ def main():
             json.dump(metrics, f, indent=2)
         accelerator.print("Saved:", fpath)
 
-        # ADDED: error analysis artifacts
         if args.error_analysis:
             artifacts = run_error_analysis(
                 out_dir=out_dir,
