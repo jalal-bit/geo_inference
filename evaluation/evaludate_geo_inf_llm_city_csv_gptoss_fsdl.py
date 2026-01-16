@@ -642,7 +642,7 @@ def main():
     # choose accelerator config based on args.fsdp
     if args.fsdp:
         fsdp_plugin = FullyShardedDataParallelPlugin(
-            sharding_strategy="FULL_SHARD",
+            sharding_strategy="SHARD_GRAD_OP",
             cpu_offload=args.fsdp_cpu_offload,
             auto_wrap_policy="TRANSFORMER_BASED_WRAP",
             backward_prefetch="BACKWARD_PRE",
