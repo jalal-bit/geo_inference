@@ -12,10 +12,10 @@ ADDED (from your 2nd code; minimal changes):
 - Per-test run subfolder: <test_csv_stem>_<timestamp>
 - W&B run name includes test_csv stem + timestamp (so test data name is reflected)
 
-FIXED (minimal changes for your runtime error):
-- In FSDP load: low_cpu_mem_usage=False and torch_dtype=bfloat16 (avoid unallocated/meta tensors)
-- In FSDP eval: DO NOT unwrap model for generate(); use wrapped model
-- (Optional but included, minimal) In FSDP: disable use_cache to avoid sharded-cache edge cases
+FIXED (for "tensor data is not allocated yet" under FSDP):
+- FSDP load: low_cpu_mem_usage=False + torch_dtype=bfloat16 + _fast_init=False
+- FSDP plugin: sync_module_states=True + use_orig_params=True
+- FSDP eval: DO NOT unwrap for generate(); use wrapped model; disable use_cache
 """
 
 import os
@@ -222,7 +222,7 @@ def compute_validation_metrics_city_json(pred_texts: List[str], gold_texts: List
 
 
 # --------------------------
-# Error analysis helpers (ADDED from 2nd code)
+# Error analysis helpers
 # --------------------------
 def _set_to_pipe(s: set) -> str:
     return "|".join(sorted(s))
@@ -383,7 +383,6 @@ def run_error_analysis(
         def _map_label(x: str, allowed: set) -> str:
             return x if x in allowed else "__OTHER__"
 
-        # County
         y_true_county = [_top1_label(s) for s in g_county]
         y_pred_county = [_top1_label(s) for s in p_county]
         labels_county = _topk_labels(g_county, top_k_labels)
@@ -397,7 +396,6 @@ def run_error_analysis(
         df_cm_county.to_csv(out_cm_county)
         conf_paths["county"] = out_cm_county
 
-        # City
         y_true_city = [_top1_label(s) for s in g_city]
         y_pred_city = [_top1_label(s) for s in p_city]
         labels_city = _topk_labels(g_city, top_k_labels)
@@ -504,16 +502,16 @@ def load_model_for_eval(
     def _load_base(path_or_name: str):
         if fsdp:
             # FSDP: multi-process sharding, do NOT use device_map
-            # FIX: avoid low_cpu_mem_usage=True (can leave params unallocated under FSDP)
+            # FIX: low_cpu_mem_usage=False + _fast_init=False avoids meta/unallocated params
             return AutoModelForCausalLM.from_pretrained(
                 path_or_name,
                 torch_dtype=torch.bfloat16,
                 device_map=None,
                 low_cpu_mem_usage=False,
+                _fast_init=False,
                 token=hf_token,
             )
         else:
-            # device_map: single-process sharding across visible GPUs
             return AutoModelForCausalLM.from_pretrained(
                 path_or_name,
                 torch_dtype="auto",
@@ -551,10 +549,9 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first
     all_pred, all_gold, all_prompts = [], [], []
     total_steps = len(loader)
 
-    # FIX: under FSDP, do NOT unwrap for generate()
+    # FIX: under FSDP, keep wrapped model for generate()
     gen_model = model
 
-    # optional stability tweak for FSDP generation
     if fsdp and getattr(gen_model, "config", None) is not None:
         gen_model.config.use_cache = False
 
@@ -650,6 +647,10 @@ def main():
             auto_wrap_policy="TRANSFORMER_BASED_WRAP",
             backward_prefetch="BACKWARD_PRE",
             activation_checkpointing=False,  # inference
+
+            # FIX: ensures all ranks get real weights; avoids unallocated tensors
+            sync_module_states=True,
+            use_orig_params=True,
         )
         accelerator = Accelerator(mixed_precision="bf16", fsdp_plugin=fsdp_plugin)
     else:
@@ -692,18 +693,15 @@ def main():
         pin_memory=True,
     )
 
-    # with FSDP we must wrap model too
     if args.fsdp:
         model, loader = accelerator.prepare(model, loader)
     else:
         loader = accelerator.prepare(loader)
 
-    # Base dir
     base_out_dir = Path(args.checkpoint_folder) / (
         f"{args.model_name}_{args.checkpoint_path}/best" if args.checkpoint_path else f"{args.model_name}_base"
     )
 
-    # consistent per-test run subfolder (broadcast timestamp for multi-proc)
     ts_run = datetime.now().strftime("%Y%m%d_%H%M%S")
     ts_list = [ts_run]
     try:
