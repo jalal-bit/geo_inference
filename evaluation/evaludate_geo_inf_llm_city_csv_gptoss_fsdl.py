@@ -7,15 +7,14 @@ UPDATED:
 - If --fsdp: use multi-process (1 proc per GPU) and NO device_map
 - Else: keep single-process device_map="auto" sharding
 
-ADDED (from your 2nd code; minimal changes):
+ADDED:
 - Optional error analysis outputs (CSV/TXT + optional confusion matrices)
 - Per-test run subfolder: <test_csv_stem>_<timestamp>
-- W&B run name includes test_csv stem + timestamp (so test data name is reflected)
+- W&B run name includes test_csv stem + timestamp
 
-FIXED (for "tensor data is not allocated yet" under FSDP):
-- FSDP load: low_cpu_mem_usage=False + torch_dtype=bfloat16 + _fast_init=False
-- FSDP plugin: sync_module_states=True + use_orig_params=True
-- FSDP eval: DO NOT unwrap for generate(); use wrapped model; disable use_cache
+MINIMAL FIX (device_map inference):
+- In non-FSDP (device_map="auto") mode, move inputs to the model's first-parameter device
+  instead of accelerator.device (required for sharded models).
 """
 
 import os
@@ -424,46 +423,6 @@ def run_error_analysis(
     lines.append(f"  City errors:   {ci_err_n:,}  (saved: {ci_err_path.name})")
     lines.append(f"  Full errors:   {all_err_n:,} (saved: {all_err_path.name})\n")
 
-    def _miss_hall(p_sets: List[set], g_sets: List[set]) -> Tuple[Counter, Counter]:
-        missed = Counter()
-        halluc = Counter()
-        for p, g in zip(p_sets, g_sets):
-            for it in (g - p):
-                missed[it] += 1
-            for it in (p - g):
-                halluc[it] += 1
-        return missed, halluc
-
-    missed_state, halluc_state = _miss_hall(p_state, g_state)
-    missed_county, halluc_county = _miss_hall(p_county, g_county)
-    missed_city, halluc_city = _miss_hall(p_city, g_city)
-
-    def _top(counter: Counter, n: int = 20) -> List[str]:
-        return [f"{k} ({v})" for k, v in counter.most_common(n)]
-
-    lines.append("Top missed states:   " + (", ".join(_top(missed_state, 10)) if missed_state else "None"))
-    lines.append("Top halluc states:   " + (", ".join(_top(halluc_state, 10)) if halluc_state else "None"))
-    lines.append("Top missed counties: " + (", ".join(_top(missed_county, 20)) if missed_county else "None"))
-    lines.append("Top halluc counties: " + (", ".join(_top(halluc_county, 20)) if halluc_county else "None"))
-    lines.append("Top missed cities:   " + (", ".join(_top(missed_city, 20)) if missed_city else "None"))
-    lines.append("Top halluc cities:   " + (", ".join(_top(halluc_city, 20)) if halluc_city else "None"))
-    lines.append("")
-
-    lines.append("Per-item PRF tables:")
-    lines.append(f"  State:  {out_state_item.name}")
-    lines.append(f"  County: {out_county_item.name}")
-    lines.append(f"  City:   {out_city_item.name}")
-    lines.append("")
-
-    if conf_paths:
-        lines.append("Confusion matrices (top-1 label per row; top-K by gold support):")
-        for k in ["state", "county", "city"]:
-            if k in conf_paths:
-                lines.append(f"  {k}: {conf_paths[k].name}")
-        lines.append("")
-    else:
-        lines.append("Confusion matrices: skipped (scikit-learn not installed). Install: pip install scikit-learn\n")
-
     out_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return {
@@ -501,8 +460,6 @@ def load_model_for_eval(
 
     def _load_base(path_or_name: str):
         if fsdp:
-            # FSDP: multi-process sharding, do NOT use device_map
-            # FIX: low_cpu_mem_usage=False + _fast_init=False avoids meta/unallocated params
             return AutoModelForCausalLM.from_pretrained(
                 path_or_name,
                 torch_dtype=torch.bfloat16,
@@ -542,6 +499,17 @@ def load_model_for_eval(
 # --------------------------
 # Eval loop
 # --------------------------
+def _infer_device_for_inputs(model, accelerator, fsdp: bool):
+    # MINIMAL FIX:
+    # - In FSDP mode, accelerator.device is correct (each rank has a single CUDA device)
+    # - In device_map="auto" mode, inputs must go to a device that matches model shards
+    if fsdp:
+        return accelerator.device
+    try:
+        return next(model.parameters()).device
+    except Exception:
+        return accelerator.device
+
 def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first_batch=True, fsdp=False):
     model.eval()
 
@@ -549,16 +517,16 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first
     all_pred, all_gold, all_prompts = [], [], []
     total_steps = len(loader)
 
-    # FIX: under FSDP, keep wrapped model for generate()
     gen_model = model
-
     if fsdp and getattr(gen_model, "config", None) is not None:
         gen_model.config.use_cache = False
 
     with torch.no_grad():
         for step, batch in enumerate(loader):
-            input_ids = batch["input_ids"].to(accelerator.device, non_blocking=True)
-            attention_mask = batch["attention_mask"].to(accelerator.device, non_blocking=True)
+            device = _infer_device_for_inputs(gen_model, accelerator, fsdp=fsdp)
+
+            input_ids = batch["input_ids"].to(device, non_blocking=True)
+            attention_mask = batch["attention_mask"].to(device, non_blocking=True)
 
             gen_out = gen_model.generate(
                 input_ids=input_ids,
@@ -626,29 +594,26 @@ def main():
 
     p.add_argument("--per_gpu_gb", type=int, default=78, help="Max memory per GPU for device_map auto.")
 
-    # FSDP
     p.add_argument("--fsdp", action="store_true", help="Use FSDP FULL_SHARD across processes (run with 4 procs).")
     p.add_argument("--fsdp_cpu_offload", action="store_true", help="Enable CPU offload in FSDP plugin.")
 
     p.add_argument("--wandb_project", default=None)
     p.add_argument("--run_note", default=None)
 
-    # error analysis
     p.add_argument("--error_analysis", action="store_true", help="Write error analysis CSV/TXT files.")
     p.add_argument("--confusion_top_k", type=int, default=50, help="Top-K labels for county/city confusion matrices (requires sklearn).")
 
     args = p.parse_args()
 
-    # choose accelerator config based on args.fsdp
     if args.fsdp:
         fsdp_plugin = FullyShardedDataParallelPlugin(
-            sharding_strategy="SHARD_GRAD_OP",
+            sharding_strategy="FULL_SHARD",
             cpu_offload=args.fsdp_cpu_offload,
             auto_wrap_policy="TRANSFORMER_BASED_WRAP",
             backward_prefetch="BACKWARD_PRE",
-            activation_checkpointing=False,  # inference
+            activation_checkpointing=False,
 
-            # FIX: ensures all ranks get real weights; avoids unallocated tensors
+            # keep these (needed on some models); if you OOM here, don't use FSDP for 120B inference
             sync_module_states=True,
             use_orig_params=True,
         )
@@ -659,17 +624,6 @@ def main():
     load_dotenv()
     hf_token = os.getenv("HF_TOKEN", None)
     wandb_key = os.getenv("WANDB_API_KEY", None)
-
-    if args.fsdp:
-        if torch.cuda.device_count() < 1:
-            accelerator.print("ERROR: No CUDA devices visible.")
-            return
-    else:
-        if torch.cuda.device_count() < 4:
-            accelerator.print(
-                f"WARNING: only {torch.cuda.device_count()} GPU(s) visible. "
-                f"Request 4 GPUs and ensure CUDA_VISIBLE_DEVICES has 4 ids."
-            )
 
     ds = PromptTargetCSVDataset(args.test_csv, prompt_col=args.prompt_col, target_col=args.target_col)
 
