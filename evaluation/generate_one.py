@@ -135,7 +135,7 @@ def main():
     # Optional LoRA adapter directory (PEFT save_pretrained)
     p.add_argument("--lora_dir", default=None, help="Path to LoRA adapter dir (optional).")
 
-    p.add_argument("--device", choices=["cpu", "cuda"], default="cuda", help="Where to run generation.")
+    p.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="Where to run generation.")
     p.add_argument("--use_device_map", action="store_true", help="If on CUDA, shard model across GPUs via device_map='auto'.")
     p.add_argument("--per_gpu_gb", type=int, default=68, help="Max GPU memory per GPU (GiB) when using device_map.")
     p.add_argument("--cpu_offload", action="store_true", help="Allow device_map to offload some modules to CPU.")
