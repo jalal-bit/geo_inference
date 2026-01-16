@@ -12,9 +12,14 @@ ADDED:
 - Per-test run subfolder: <test_csv_stem>_<timestamp>
 - W&B run name includes test_csv stem + timestamp
 
-MINIMAL FIX (device_map inference):
-- In non-FSDP (device_map="auto") mode, move inputs to the model's first-parameter device
-  instead of accelerator.device (required for sharded models).
+MINIMAL FIXES for GPT-OSS 120B:
+- Non-FSDP (device_map="auto") path:
+    * allow explicit max_memory capping via --devicemap_gpu_gb
+    * optional CPU offload budget via --devicemap_cpu_offload (adds "cpu" to max_memory)
+  This prevents OOM during "Loading checkpoint shards".
+- Input tensors:
+    * FSDP: move to accelerator.device
+    * device_map: move to first parameter device
 """
 
 import os
@@ -423,6 +428,46 @@ def run_error_analysis(
     lines.append(f"  City errors:   {ci_err_n:,}  (saved: {ci_err_path.name})")
     lines.append(f"  Full errors:   {all_err_n:,} (saved: {all_err_path.name})\n")
 
+    def _miss_hall(p_sets: List[set], g_sets: List[set]) -> Tuple[Counter, Counter]:
+        missed = Counter()
+        halluc = Counter()
+        for p, g in zip(p_sets, g_sets):
+            for it in (g - p):
+                missed[it] += 1
+            for it in (p - g):
+                halluc[it] += 1
+        return missed, halluc
+
+    missed_state, halluc_state = _miss_hall(p_state, g_state)
+    missed_county, halluc_county = _miss_hall(p_county, g_county)
+    missed_city, halluc_city = _miss_hall(p_city, g_city)
+
+    def _top(counter: Counter, n: int = 20) -> List[str]:
+        return [f"{k} ({v})" for k, v in counter.most_common(n)]
+
+    lines.append("Top missed states:   " + (", ".join(_top(missed_state, 10)) if missed_state else "None"))
+    lines.append("Top halluc states:   " + (", ".join(_top(halluc_state, 10)) if halluc_state else "None"))
+    lines.append("Top missed counties: " + (", ".join(_top(missed_county, 20)) if missed_county else "None"))
+    lines.append("Top halluc counties: " + (", ".join(_top(halluc_county, 20)) if halluc_county else "None"))
+    lines.append("Top missed cities:   " + (", ".join(_top(missed_city, 20)) if missed_city else "None"))
+    lines.append("Top halluc cities:   " + (", ".join(_top(halluc_city, 20)) if halluc_city else "None"))
+    lines.append("")
+
+    lines.append("Per-item PRF tables:")
+    lines.append(f"  State:  {out_state_item.name}")
+    lines.append(f"  County: {out_county_item.name}")
+    lines.append(f"  City:   {out_city_item.name}")
+    lines.append("")
+
+    if conf_paths:
+        lines.append("Confusion matrices (top-1 label per row; top-K by gold support):")
+        for k in ["state", "county", "city"]:
+            if k in conf_paths:
+                lines.append(f"  {k}: {conf_paths[k].name}")
+        lines.append("")
+    else:
+        lines.append("Confusion matrices: skipped (scikit-learn not installed). Install: pip install scikit-learn\n")
+
     out_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return {
@@ -438,9 +483,12 @@ def run_error_analysis(
 # --------------------------
 # Model loading helpers
 # --------------------------
-def _build_max_memory(per_gpu_gb: int = 78) -> Dict[int, str]:
+def _build_max_memory(per_gpu_gb: int, allow_cpu: bool, cpu_gb: int = 96) -> Dict:
     n = torch.cuda.device_count()
-    return {i: f"{per_gpu_gb}GiB" for i in range(n)}
+    mm: Dict = {i: f"{per_gpu_gb}GiB" for i in range(n)}
+    if allow_cpu:
+        mm["cpu"] = f"{cpu_gb}GiB"
+    return mm
 
 def load_model_for_eval(
     model_name: str,
@@ -450,13 +498,13 @@ def load_model_for_eval(
     use_lora_adapter: bool,
     per_gpu_gb: int,
     fsdp: bool,
+    devicemap_cpu_offload: bool,
+    devicemap_gpu_gb: Optional[int],
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-
-    max_memory = _build_max_memory(per_gpu_gb=per_gpu_gb) if torch.cuda.is_available() else None
 
     def _load_base(path_or_name: str):
         if fsdp:
@@ -469,6 +517,10 @@ def load_model_for_eval(
                 token=hf_token,
             )
         else:
+            # device_map: single-process sharding across visible GPUs
+            # IMPORTANT for 120B: cap GPU memory and optionally allow CPU offload
+            per_gpu = devicemap_gpu_gb if devicemap_gpu_gb else per_gpu_gb
+            max_memory = _build_max_memory(per_gpu_gb=per_gpu, allow_cpu=devicemap_cpu_offload) if torch.cuda.is_available() else None
             return AutoModelForCausalLM.from_pretrained(
                 path_or_name,
                 torch_dtype="auto",
@@ -500,9 +552,6 @@ def load_model_for_eval(
 # Eval loop
 # --------------------------
 def _infer_device_for_inputs(model, accelerator, fsdp: bool):
-    # MINIMAL FIX:
-    # - In FSDP mode, accelerator.device is correct (each rank has a single CUDA device)
-    # - In device_map="auto" mode, inputs must go to a device that matches model shards
     if fsdp:
         return accelerator.device
     try:
@@ -592,7 +641,9 @@ def main():
     p.add_argument("--max_length", type=int, default=512)
     p.add_argument("--max_new_tokens", type=int, default=25)
 
-    p.add_argument("--per_gpu_gb", type=int, default=78, help="Max memory per GPU for device_map auto.")
+    p.add_argument("--per_gpu_gb", type=int, default=72, help="(non-FSDP) default per-GPU cap for device_map.")
+    p.add_argument("--devicemap_gpu_gb", type=int, default=None, help="(non-FSDP) override per-GPU cap for device_map.")
+    p.add_argument("--devicemap_cpu_offload", action="store_true", help="(non-FSDP) allow CPU offload via max_memory['cpu'].")
 
     p.add_argument("--fsdp", action="store_true", help="Use FSDP FULL_SHARD across processes (run with 4 procs).")
     p.add_argument("--fsdp_cpu_offload", action="store_true", help="Enable CPU offload in FSDP plugin.")
@@ -613,7 +664,7 @@ def main():
             backward_prefetch="BACKWARD_PRE",
             activation_checkpointing=False,
 
-            # keep these (needed on some models); if you OOM here, don't use FSDP for 120B inference
+            # WARNING: GPT-OSS 120B often OOMs during FSDP wrapping. Prefer non-FSDP device_map for inference.
             sync_module_states=True,
             use_orig_params=True,
         )
@@ -635,6 +686,8 @@ def main():
         use_lora_adapter=args.use_lora_adapter,
         per_gpu_gb=args.per_gpu_gb,
         fsdp=args.fsdp,
+        devicemap_cpu_offload=args.devicemap_cpu_offload,
+        devicemap_gpu_gb=args.devicemap_gpu_gb,
     )
 
     collator = EvalCollatorTokenize(tokenizer, max_length=args.max_length)
