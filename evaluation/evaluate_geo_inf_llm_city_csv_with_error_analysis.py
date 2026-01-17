@@ -553,8 +553,7 @@ def load_model_for_eval(
 def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=25, log_first_batch=True):
     model.eval()
     unwrapped = accelerator.unwrap_model(model)
-    gen_cfg = {"num_beams": 1, "do_sample": False, "max_new_tokens": max_new_tokens,"eos_token_id": tokenizer.eos_token_id,
-    "pad_token_id": tokenizer.pad_token_id}
+    gen_cfg = {"num_beams": 1, "do_sample": False, "max_new_tokens": max_new_tokens}
 
     all_pred, all_gold = [], []
     all_prompts = []
