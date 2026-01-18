@@ -2,15 +2,13 @@
 """
 Single-sentence generation helper (ONE GPU, NO CPU offloading).
 
-- Takes a prompt/sentence via CLI (--text)
-- Loads base HF model (--model_name) OR a saved checkpoint from:
-    <checkpoint_folder>/<model_name>_<checkpoint_path>/best
-- Optional LoRA adapter via --use_lora_adapter
-- Runs pure generation and prints to console (no metrics, no JSON)
+CLI args (ONLY):
+  --text
+  --model_name
+  --checkpoint_folder
+  --checkpoint_path
 
-Assumptions:
-- You request exactly 1 GPU in Slurm (or set CUDA_VISIBLE_DEVICES to a single GPU).
-- Model fits on that GPU (note: GPT-OSS 120B will NOT fit on 1x80GB unless quantized).
+Everything else is hardcoded below.
 """
 
 import os
@@ -29,32 +27,45 @@ except Exception:
 
 
 # --------------------------
-# Model loading (from your eval code; minimal adaptation)
+# HARDCODED SETTINGS
+# --------------------------
+USE_LORA_ADAPTER = True     # set True if you want PEFT adapter loading from /best
+MAX_NEW_TOKENS = 128
+DO_SAMPLE = False
+TEMPERATURE = 0.7
+TOP_P = 0.95
+SEED = 0
+
+DTYPE = torch.bfloat16       # keep as bfloat16 like your original
+GPU_DEVICE = "cuda:0"
+
+
+# --------------------------
+# Model loading (minimal adaptation)
 # --------------------------
 def load_model_for_eval(
     model_name: str,
     hf_token: Optional[str],
     checkpoint_folder: str,
     checkpoint_path: Optional[str],
-    use_lora_adapter: bool,
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # ONE GPU only: we load with device_map=None then move to cuda:0
+    # ONE GPU only: load with device_map=None then move to cuda:0
     if checkpoint_path and checkpoint_path.strip():
         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
         if not best_dir.exists():
             raise FileNotFoundError(f"Checkpoint not found: {best_dir}")
 
-        if use_lora_adapter:
+        if USE_LORA_ADAPTER:
             if PeftModel is None:
-                raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
+                raise RuntimeError("peft is not installed but USE_LORA_ADAPTER=True.")
             base = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype=torch.bfloat16,
+                torch_dtype=DTYPE,
                 device_map=None,
                 low_cpu_mem_usage=True,
                 token=hf_token,
@@ -63,23 +74,23 @@ def load_model_for_eval(
         else:
             model = AutoModelForCausalLM.from_pretrained(
                 str(best_dir),
-                torch_dtype=torch.bfloat16,
+                torch_dtype=DTYPE,
                 device_map=None,
                 low_cpu_mem_usage=True,
                 token=hf_token,
             )
-        print(f"Loaded checkpoint: {best_dir} (use_lora_adapter={use_lora_adapter})")
+        print(f"Loaded checkpoint: {best_dir} (USE_LORA_ADAPTER={USE_LORA_ADAPTER})")
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=DTYPE,
             device_map=None,
             low_cpu_mem_usage=True,
             token=hf_token,
         )
         print(f"Loaded base model: {model_name}")
 
-    # Llama padding safety (kept from your code)
+    # Llama padding safety
     if "llama" in model_name.lower():
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -94,18 +105,9 @@ def load_model_for_eval(
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--text", required=True, help="Prompt/sentence to generate from.")
-    p.add_argument("--model_name", required=True, help="HF model id (for tokenizer + base weights).")
-
-    p.add_argument("--checkpoint_folder", default="checkpoints")
-    p.add_argument("--checkpoint_path", default=None, help="Training timestamp used in <model_name>_<checkpoint_path>/best")
-    p.add_argument("--use_lora_adapter", action="store_true", help="Load LoRA adapter from the /best folder via PEFT.")
-
-    p.add_argument("--max_new_tokens", type=int, default=64)
-    p.add_argument("--do_sample", action="store_true")
-    p.add_argument("--temperature", type=float, default=0.7)
-    p.add_argument("--top_p", type=float, default=0.95)
-    p.add_argument("--seed", type=int, default=0)
-
+    p.add_argument("--model_name", required=True, help="HF model id (tokenizer + base weights).")
+    p.add_argument("--checkpoint_folder", required=True, help="Base folder containing <model>_<checkpoint>/best")
+    p.add_argument("--checkpoint_path", default=None, help="Training timestamp used in <model>_<checkpoint_path>/best")
     args = p.parse_args()
 
     load_dotenv()
@@ -114,38 +116,35 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available. This script is GPU-only by design.")
 
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
 
-    # Load on CPU first, then move to single GPU
     model, tok = load_model_for_eval(
         model_name=args.model_name,
         hf_token=hf_token,
         checkpoint_folder=args.checkpoint_folder,
         checkpoint_path=args.checkpoint_path,
-        use_lora_adapter=args.use_lora_adapter,
     )
 
-    device = torch.device("cuda:0")
+    device = torch.device(GPU_DEVICE)
     model = model.to(device)
     model.eval()
 
-    print("[INFO] Loaded on single GPU cuda:0")
+    print(f"[INFO] Loaded on single GPU {GPU_DEVICE}")
     print(f"[INFO] Model dtype: {next(model.parameters()).dtype}")
 
-    # Tokenize -> GPU
     enc = tok(args.text, return_tensors="pt", add_special_tokens=False)
     input_ids = enc["input_ids"].to(device)
     attention_mask = enc["attention_mask"].to(device)
 
     gen_kwargs = dict(
-        max_new_tokens=args.max_new_tokens,
+        max_new_tokens=MAX_NEW_TOKENS,
         num_beams=1,
         pad_token_id=tok.pad_token_id,
-        do_sample=args.do_sample,
+        do_sample=DO_SAMPLE,
     )
-    if args.do_sample:
-        gen_kwargs.update(dict(temperature=args.temperature, top_p=args.top_p))
+    if DO_SAMPLE:
+        gen_kwargs.update(dict(temperature=TEMPERATURE, top_p=TOP_P))
 
     with torch.no_grad():
         out = model.generate(
