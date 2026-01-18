@@ -9,6 +9,12 @@ CLI args (ONLY):
   --checkpoint_path
 
 Everything else is hardcoded below.
+
+UPDATE:
+- Wraps the user-provided --text into a fixed extraction prompt format:
+  You are given a social media post...
+  Text: "..."
+  JSON:
 """
 
 import os
@@ -36,8 +42,33 @@ TEMPERATURE = 0.7
 TOP_P = 0.95
 SEED = 0
 
-DTYPE = torch.bfloat16       # keep as bfloat16 like your original
+DTYPE = torch.bfloat16
 GPU_DEVICE = "cuda:0"
+
+
+# --------------------------
+# Prompt wrapper
+# --------------------------
+PROMPT_TEMPLATE = (
+    "You are given a social media post.\n"
+    "Extract locations mentioned in the text for the U.S. states Texas, Alabama, and Arkansas only.\n"
+    "Return a JSON object with these optional keys:\n"
+    '  - "state": list of state abbreviations among ["TX","AL","AR"]\n'
+    '  - "county": list of county names (no word "County")\n'
+    '  - "city": list of city names\n'
+    "If a key is unknown or not present in the text, omit that key.\n"
+    "Do not include any extra text outside JSON.\n\n"
+    'Text: "{text}"\n'
+    "JSON:"
+)
+
+
+def wrap_text_as_prompt(text: str) -> str:
+    # Keep it robust if user passes quotes/newlines
+    cleaned = text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    # Avoid breaking the Text: "..." line with unescaped double quotes
+    cleaned = cleaned.replace('"', '\\"')
+    return PROMPT_TEMPLATE.format(text=cleaned)
 
 
 # --------------------------
@@ -54,7 +85,6 @@ def load_model_for_eval(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # ONE GPU only: load with device_map=None then move to cuda:0
     if checkpoint_path and checkpoint_path.strip():
         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
         if not best_dir.exists():
@@ -90,7 +120,6 @@ def load_model_for_eval(
         )
         print(f"Loaded base model: {model_name}")
 
-    # Llama padding safety
     if "llama" in model_name.lower():
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -104,7 +133,7 @@ def load_model_for_eval(
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--text", required=True, help="Prompt/sentence to generate from.")
+    p.add_argument("--text", required=True, help="Raw social post text; will be wrapped into the extraction prompt.")
     p.add_argument("--model_name", required=True, help="HF model id (tokenizer + base weights).")
     p.add_argument("--checkpoint_folder", required=True, help="Base folder containing <model>_<checkpoint>/best")
     p.add_argument("--checkpoint_path", default=None, help="Training timestamp used in <model>_<checkpoint_path>/best")
@@ -130,10 +159,9 @@ def main():
     model = model.to(device)
     model.eval()
 
-    print(f"[INFO] Loaded on single GPU {GPU_DEVICE}")
-    print(f"[INFO] Model dtype: {next(model.parameters()).dtype}")
+    prompt = wrap_text_as_prompt(args.text)
 
-    enc = tok(args.text, return_tensors="pt", add_special_tokens=False)
+    enc = tok(prompt, return_tensors="pt", add_special_tokens=False)
     input_ids = enc["input_ids"].to(device)
     attention_mask = enc["attention_mask"].to(device)
 
@@ -154,13 +182,14 @@ def main():
         )
 
     cutoff = input_ids.size(1)
-    gen_text = tok.decode(out[0, cutoff:], skip_special_tokens=True)
+    gen_text = tok.decode(out[0, cutoff:], skip_special_tokens=True).strip()
 
-    print("\n===== PROMPT =====")
-    print(args.text)
-    print("\n===== GENERATION =====")
+    # Print ONLY JSON-ish output (no extra wrapper text),
+    # but keep a fallback if model returns nothing.
+    if not gen_text:
+        gen_text = "{}"
+
     print(gen_text)
-    print("======================\n")
 
 
 if __name__ == "__main__":
