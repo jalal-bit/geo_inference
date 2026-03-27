@@ -25,3 +25,4 @@ geoinf_llm_env/
 # Ignore Python bytecode cache
 __pycache__/
 
+bitsandbytes/
