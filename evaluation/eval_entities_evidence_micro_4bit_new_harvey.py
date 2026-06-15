@@ -676,6 +676,122 @@ def match_by_geo(pred_ents: List[Dict[str, Any]], gold_ents: List[Dict[str, Any]
     return matches
 
 
+def _locdesc_from_ent(ent: Dict[str, Any]) -> str:
+    ev = ent.get("evidence") or ent.get("mention") or ent.get("locDesc") or ent.get("locationDesc") or []
+    if not isinstance(ev, list):
+        ev = [ev]
+    return ", ".join(str(x).strip() for x in ev if x is not None and str(x).strip())
+
+
+def _loc_category(ent: Dict[str, Any]) -> str:
+    return str(
+        ent.get("locationCate")
+        or ent.get("locCate")
+        or ent.get("category")
+        or "UNKNOWN"
+    ).strip()
+
+
+def _simple_norm_text(x: str) -> str:
+    if x is None:
+        return ""
+    return " ".join(str(x).lower().strip().split())
+
+
+def fuzzy_ratio_0_100(a: str, b: str) -> float:
+    """
+    Similar to fuzzywuzzy fuzz.ratio.
+    Uses rapidfuzz if available, otherwise Python difflib.
+    """
+    a = _simple_norm_text(a)
+    b = _simple_norm_text(b)
+
+    if not a or not b:
+        return 0.0
+
+    try:
+        from rapidfuzz import fuzz
+        return float(fuzz.ratio(a, b))
+    except Exception:
+        from difflib import SequenceMatcher
+        return 100.0 * SequenceMatcher(None, a, b).ratio()
+
+
+def extract_locdesc_items(parsed_obj):
+    """
+    Returns list of:
+      {
+        "desc": "...",
+        "category": "C5"
+      }
+    """
+    items = []
+
+    for ent in parsed_obj["entities"]:
+        if not isinstance(ent, dict):
+            continue
+
+        desc = _locdesc_from_ent(ent)
+
+        if not desc:
+            continue
+
+        items.append({
+            "desc": desc,
+            "category": _loc_category(ent)
+        })
+
+    return items
+
+
+def greedy_locdesc_match(pred_items, gold_items, threshold=75.0):
+    """
+    One-to-one fuzzy matching between predicted and gold location descriptions.
+    Category is NOT used for matching.
+    """
+
+    gold_used = [False] * len(gold_items)
+    pred_used = [False] * len(pred_items)
+    matches = []
+
+    while True:
+        best_score = -1.0
+        best_i = -1
+        best_j = -1
+
+        for i, p in enumerate(pred_items):
+            if pred_used[i]:
+                continue
+
+            for j, g in enumerate(gold_items):
+                if gold_used[j]:
+                    continue
+
+                score = fuzzy_ratio_0_100(p["desc"], g["desc"])
+
+                if score > best_score:
+                    best_score = score
+                    best_i = i
+                    best_j = j
+
+        if best_i < 0 or best_j < 0 or best_score < threshold:
+            break
+
+        pred_used[best_i] = True
+        gold_used[best_j] = True
+
+        matches.append({
+            "pred_idx": best_i,
+            "gold_idx": best_j,
+            "score": best_score,
+            "gold_category": gold_items[best_j]["category"],
+            "pred_desc": pred_items[best_i]["desc"],
+            "gold_desc": gold_items[best_j]["desc"],
+        })
+
+    return matches, pred_used, gold_used
+
+
 def compute_test_metrics_entities_json(
     pred_texts: List[str],
     gold_texts: List[str],
