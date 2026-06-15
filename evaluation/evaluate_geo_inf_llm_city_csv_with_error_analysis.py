@@ -192,7 +192,7 @@ def parse_gold_target_json(text: str) -> Dict[str, set]:
 def _micro_prf(pred_sets: List[set], gold_sets: List[set]) -> Dict[str, float]:
     tp = fp = fn = 0
     for p, g in zip(pred_sets, gold_sets):
-        tp += len(p & g)
+        tp += len(p & g) 
         fp += len(p - g)
         fn += len(g - p)
     precision = tp / (tp + fp) if (tp + fp) else 0.0
