@@ -1067,6 +1067,13 @@ def train_loop(args, train_ds: Dataset, val_ds: Dataset):
     #     accelerator.state.fsdp_plugin.device_id = torch.device(f"cuda:{accelerator.local_process_index}")
         
     set_seed(args.seed + accelerator.process_index)
+
+    if accelerator.is_main_process:
+        if args.resume_from_checkpoint:
+            print(f"\n[RESUME] Loading checkpoint: {args.resume_from_checkpoint}")
+            print(f"[BASE MODEL] {args.model_name}\n")
+        else:
+            print(f"\n[FRESH TRAINING] Loading base model: {args.model_name}\n")
     model, tokenizer = load_model_and_tokenizer(
             model_name=args.model_name,
             hf_token=hf_token,
