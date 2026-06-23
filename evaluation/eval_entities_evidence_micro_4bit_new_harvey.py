@@ -1427,6 +1427,64 @@ def run_error_analysis(
 # --------------------------
 # Model loading
 # --------------------------
+# def load_model_for_eval(
+#     model_name: str,
+#     hf_token: Optional[str],
+#     checkpoint_folder: str,
+#     checkpoint_path: Optional[str],
+#     use_lora_adapter: bool,
+# ):
+#     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+#     tokenizer.padding_side = "left"
+#     if tokenizer.pad_token is None:
+#         tokenizer.pad_token = tokenizer.eos_token
+
+#     if checkpoint_path and checkpoint_path.strip():
+#         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
+#         if not best_dir.exists():
+#             raise FileNotFoundError(f"Checkpoint not found: {best_dir}")
+#         if use_lora_adapter:
+#             if PeftModel is None:
+#                 raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
+#             bnb_config = BitsAndBytesConfig(
+#                 load_in_4bit=True,
+#                 bnb_4bit_quant_type="nf4",
+#                 bnb_4bit_compute_dtype=torch.bfloat16,
+#                 bnb_4bit_use_double_quant=True,)
+#             base = AutoModelForCausalLM.from_pretrained(model_name,
+#                                                         quantization_config=bnb_config,
+#                                                         device_map=None,
+#                                                         token=hf_token,)
+#             model = PeftModel.from_pretrained(base, str(best_dir))
+#         # if use_lora_adapter:
+#         #     if PeftModel is None:
+#         #         raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
+#         #     base = AutoModelForCausalLM.from_pretrained(
+#         #         model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+#         #     )
+#         #     model = PeftModel.from_pretrained(base, str(best_dir))
+#         else:
+#             model = AutoModelForCausalLM.from_pretrained(
+#                 str(best_dir), torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+#             )
+#         print(f"Loaded checkpoint: {best_dir} (use_lora_adapter={use_lora_adapter})")
+#     else:
+#         model = AutoModelForCausalLM.from_pretrained(
+#             model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+#         )
+#         print(f"Loaded base model: {model_name}")
+
+#     if "llama" in model_name.lower():
+#         if tokenizer.pad_token_id is None:
+#             tokenizer.pad_token_id = tokenizer.eos_token_id
+#         if getattr(model, "config", None) is not None:
+#             model.config.pad_token_id = tokenizer.pad_token_id
+#         if getattr(model, "generation_config", None) is not None:
+#             model.generation_config.pad_token_id = tokenizer.pad_token_id
+
+#     return model, tokenizer
+
+
 def load_model_for_eval(
     model_name: str,
     hf_token: Optional[str],
@@ -1436,51 +1494,68 @@ def load_model_for_eval(
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     tokenizer.padding_side = "left"
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+
     if checkpoint_path and checkpoint_path.strip():
         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
+
         if not best_dir.exists():
             raise FileNotFoundError(f"Checkpoint not found: {best_dir}")
+
         if use_lora_adapter:
             if PeftModel is None:
                 raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16,
-                bnb_4bit_use_double_quant=True,)
-            base = AutoModelForCausalLM.from_pretrained(model_name,
-                                                        quantization_config=bnb_config,
-                                                        device_map=None,
-                                                        token=hf_token,)
+
+            base = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                quantization_config=bnb_config,
+                device_map=None,
+                token=hf_token,
+            )
+
             model = PeftModel.from_pretrained(base, str(best_dir))
-        # if use_lora_adapter:
-        #     if PeftModel is None:
-        #         raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
-        #     base = AutoModelForCausalLM.from_pretrained(
-        #         model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
-        #     )
-        #     model = PeftModel.from_pretrained(base, str(best_dir))
+
+            print(f"Loaded 4-bit base model: {model_name}")
+            print(f"Loaded LoRA adapter checkpoint: {best_dir}")
+
         else:
             model = AutoModelForCausalLM.from_pretrained(
-                str(best_dir), torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+                str(best_dir),
+                quantization_config=bnb_config,
+                device_map=None,
+                token=hf_token,
             )
-        print(f"Loaded checkpoint: {best_dir} (use_lora_adapter={use_lora_adapter})")
+
+            print(f"Loaded 4-bit full checkpoint: {best_dir}")
+
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+            model_name,
+            quantization_config=bnb_config,
+            device_map=None,
+            token=hf_token,
         )
-        print(f"Loaded base model: {model_name}")
 
-    if "llama" in model_name.lower():
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-        if getattr(model, "config", None) is not None:
-            model.config.pad_token_id = tokenizer.pad_token_id
-        if getattr(model, "generation_config", None) is not None:
-            model.generation_config.pad_token_id = tokenizer.pad_token_id
+        print(f"Loaded 4-bit pretrained base model: {model_name}")
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    if getattr(model, "config", None) is not None:
+        model.config.pad_token_id = tokenizer.pad_token_id
+        model.config.use_cache = True
+
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
 
     return model, tokenizer
 
