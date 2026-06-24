@@ -606,45 +606,45 @@ def greedy_evidence_match(pred_list: List[str], gold_list: List[str], thr: float
             match += 1
     return match
 
-# def evidence_f1_for_pair(pred_ent: Dict[str, Any], gold_ent: Dict[str, Any], thr: float) -> float:
-#     pred_e = pred_ent.get("evidence") or pred_ent.get("mention") or []
-#     gold_e = gold_ent.get("evidence") or gold_ent.get("mention") or []
-#     if not isinstance(pred_e, list):
-#         pred_e = [pred_e]
-#     if not isinstance(gold_e, list):
-#         gold_e = [gold_e]
-
-#     m = greedy_evidence_match(pred_e, gold_e, thr)
-#     p = m / len(pred_e) if pred_e else (1.0 if not gold_e else 0.0)
-#     r = m / len(gold_e) if gold_e else (1.0 if not pred_e else 0.0)
-#     return (2 * p * r / (p + r)) if (p + r) else 0.0
 def evidence_f1_for_pair(pred_ent: Dict[str, Any], gold_ent: Dict[str, Any], thr: float) -> float:
     pred_e = pred_ent.get("evidence") or pred_ent.get("mention") or []
     gold_e = gold_ent.get("evidence") or gold_ent.get("mention") or []
-
     if not isinstance(pred_e, list):
         pred_e = [pred_e]
     if not isinstance(gold_e, list):
         gold_e = [gold_e]
 
-    # Original phrase-level matching
     m = greedy_evidence_match(pred_e, gold_e, thr)
     p = m / len(pred_e) if pred_e else (1.0 if not gold_e else 0.0)
     r = m / len(gold_e) if gold_e else (1.0 if not pred_e else 0.0)
-    original_f1 = (2 * p * r / (p + r)) if (p + r) else 0.0
+    return (2 * p * r / (p + r)) if (p + r) else 0.0
+# def evidence_f1_for_pair(pred_ent: Dict[str, Any], gold_ent: Dict[str, Any], thr: float) -> float:
+#     pred_e = pred_ent.get("evidence") or pred_ent.get("mention") or []
+#     gold_e = gold_ent.get("evidence") or gold_ent.get("mention") or []
 
-    # New fallback: concatenate evidence pieces and compare as one phrase
-    pred_joined = ", ".join(str(x) for x in pred_e if _norm_evidence_item(x))
-    gold_joined = ", ".join(str(x) for x in gold_e if _norm_evidence_item(x))
+#     if not isinstance(pred_e, list):
+#         pred_e = [pred_e]
+#     if not isinstance(gold_e, list):
+#         gold_e = [gold_e]
 
-    joined_sim = evidence_similarity(pred_joined, gold_joined)
+#     # Original phrase-level matching
+#     m = greedy_evidence_match(pred_e, gold_e, thr)
+#     p = m / len(pred_e) if pred_e else (1.0 if not gold_e else 0.0)
+#     r = m / len(gold_e) if gold_e else (1.0 if not pred_e else 0.0)
+#     original_f1 = (2 * p * r / (p + r)) if (p + r) else 0.0
 
-    if joined_sim >= thr:
-        joined_f1 = 1.0
-    else:
-        joined_f1 = joined_sim
+#     # New fallback: concatenate evidence pieces and compare as one phrase
+#     pred_joined = ", ".join(str(x) for x in pred_e if _norm_evidence_item(x))
+#     gold_joined = ", ".join(str(x) for x in gold_e if _norm_evidence_item(x))
 
-    return max(original_f1, joined_f1)
+#     joined_sim = evidence_similarity(pred_joined, gold_joined)
+
+#     if joined_sim >= thr:
+#         joined_f1 = 1.0
+#     else:
+#         joined_f1 = joined_sim
+
+#     return max(original_f1, joined_f1)
 
 # --------------------------
 # Matching + metrics
