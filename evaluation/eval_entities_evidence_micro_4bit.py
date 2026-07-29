@@ -1213,8 +1213,20 @@ def load_model_for_eval(
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     tokenizer.padding_side = "left"
+    tokenizer.truncation_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    model_load_kwargs = {
+        "dtype": torch.bfloat16,
+        "device_map": None,
+        "low_cpu_mem_usage": True,
+        "token": hf_token,
+    }
+    if "gemma" in model_name.lower():
+        # Gemma 2, especially 27B under bitsandbytes, must be loaded with
+        # BF16 non-quantized modules and the same attention backend as training.
+        model_load_kwargs["attn_implementation"] = "eager"
 
     if checkpoint_path and checkpoint_path.strip():
         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
@@ -1227,37 +1239,35 @@ def load_model_for_eval(
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_compute_dtype=torch.bfloat16,
-                bnb_4bit_use_double_quant=True,)
-            base = AutoModelForCausalLM.from_pretrained(model_name,
-                                                        quantization_config=bnb_config,
-                                                        device_map=None,
-                                                        token=hf_token,)
+                bnb_4bit_quant_storage=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+            base = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                quantization_config=bnb_config,
+                **model_load_kwargs,
+            )
             model = PeftModel.from_pretrained(base, str(best_dir))
-        # if use_lora_adapter:
-        #     if PeftModel is None:
-        #         raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
-        #     base = AutoModelForCausalLM.from_pretrained(
-        #         model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
-        #     )
-        #     model = PeftModel.from_pretrained(base, str(best_dir))
         else:
             model = AutoModelForCausalLM.from_pretrained(
-                str(best_dir), torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+                str(best_dir),
+                **model_load_kwargs,
             )
         print(f"Loaded checkpoint: {best_dir} (use_lora_adapter={use_lora_adapter})")
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+            model_name,
+            **model_load_kwargs,
         )
         print(f"Loaded base model: {model_name}")
 
-    if "llama" in model_name.lower():
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-        if getattr(model, "config", None) is not None:
-            model.config.pad_token_id = tokenizer.pad_token_id
-        if getattr(model, "generation_config", None) is not None:
-            model.generation_config.pad_token_id = tokenizer.pad_token_id
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    if getattr(model, "config", None) is not None:
+        model.config.pad_token_id = tokenizer.pad_token_id
+        model.config.use_cache = True
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
 
     return model, tokenizer
 
@@ -1352,6 +1362,11 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=120, log_firs
                     print("PRED  :", local_pred[0])
                     print("GOLD  :", local_gold[0])
                     print("POSTP :", local_infos[0])
+                    if not local_raw[0]:
+                        new_ids = gen_out[0, cutoff:]
+                        print("NEW TOKEN IDS:", new_ids[:32].tolist(), f"(count={new_ids.numel()})")
+                        raw_with_special = tokenizer.decode(new_ids, skip_special_tokens=False)
+                        print("RAW+SPECIAL:", repr(raw_with_special[:500]))
 
                 if step % 200 == 0 or step == total_steps - 1:
                     accelerator.print(f"Step {step+1}/{total_steps}")
@@ -1456,7 +1471,7 @@ def main():
                 "idx": i,
                 "prompt": all_prompts[i] if i < len(all_prompts) else "",
                 "gold_raw": all_gold[i] if i < len(all_gold) else "",
-                "pred_raw": "",  # NOTE: we no longer keep raw in all_pred; raw is only inside evaluate
+                "pred_raw": all_pred_raw[i] if i < len(all_pred_raw) else "",
                 "pred_postproc_raw": all_pred[i],
 
                 "postproc_mode": info.get("mode", ""),
@@ -1499,4 +1514,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
