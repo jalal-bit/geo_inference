@@ -1,0 +1,85 @@
+idx,text,prompt,pred_raw,gold_raw,pred_valid_json,pred_state,pred_county,pred_city,gold_state,gold_county,gold_city,state_exact,county_exact,city_exact,all_exact,geo_obj_exact,geo_obj_tp,geo_obj_fp,geo_obj_fn,matched_geo_pairs,low_evidence_pairs,postproc_mode,arrays_found,arrays_unique,arrays_repeated_dropped,geo_dedupe_dropped,geo_conflict_kept,entities_before_geo_dedupe,entities_after_geo_dedupe
+267,"Heavy flooding reported in Springfield near the intersection of Maple Road & Pine Street
+Output: [{""evidence"":[""Springfield""]},{""evidence"":[""Maple Road & Pine Street""]}]
+
+Text: Floodwaters have closed Oakridge Road and traffic is backed up along Highway 47. Avoid Highway 47 if possible.
+Output: [{""evidence"":[""Oakridge Road""]},{""evidence"":[""Highway 47""]}]
+
+Text: Flooding reported at 1234 Westheimer Rd
+Output: [{""evidence"":[""1234 Westheimer Rd""]}]
+
+
+
+Text: CAT 4 HurricaneHarvey makes landfall on San Jose Island, TX. Those areas are ground zero for strongest part of eye wall","You are given a social media post.
+
+Extract all geographic location descriptions mentioned in the text.
+
+Return a JSON array of objects. Each object must contain:
+  - ""evidence"": a list of one or more words/phrases from the text that identify a single location description.
+
+Rules:
+  - One object per location description.
+  - Use minimal evidence necessary.
+  - Keep the exact wording from the text whenever possible.
+  - A location description may be a city, neighborhood, road, intersection, landmark, building, park, waterbody, facility, address, or other geographic reference.
+  - Street addresses are valid location descriptions, including addresses with house/building numbers.
+  - Do not fabricate locations.
+  - Your response must start with [ and end with ].
+  - Do not include any explanation, markdown, or extra text.
+
+Examples:
+
+Text: Heavy flooding reported in Springfield near the intersection of Maple Road & Pine Street
+Output: [{""evidence"":[""Springfield""]},{""evidence"":[""Maple Road & Pine Street""]}]
+
+Text: Floodwaters have closed Oakridge Road and traffic is backed up along Highway 47. Avoid Highway 47 if possible.
+Output: [{""evidence"":[""Oakridge Road""]},{""evidence"":[""Highway 47""]}]
+
+Text: Flooding reported at 1234 Westheimer Rd
+Output: [{""evidence"":[""1234 Westheimer Rd""]}]
+
+
+
+Text: CAT 4 HurricaneHarvey makes landfall on San Jose Island, TX. Those areas are ground zero for strongest part of eye wall","[{""evidence"": [""TX"", ""San Jose Island""]}, {""evidence"": [""TX"", ""San Jose Island""], ""category"": ""TX"", ""name"": ""San Jose Island""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX"", ""state"": ""TX""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX"", ""state"": ""TX"", ""county"": ""TX""}]","[{""evidence"":[""San Jose Island""],""locationCate"":""C9"",""startIndex"":40,""endIndex"":55},{""evidence"":[""TX""],""locationCate"":""C9"",""startIndex"":57,""endIndex"":59}]",True,tx,tx,,,,,0,0,1,0,0,0,1,0,0,0,multi,5,5,0,0,0,5,5
+512,"Heavy flooding reported in Springfield near the intersection of Maple Road & Pine Street
+Output: [{""evidence"":[""Springfield""]},{""evidence"":[""Maple Road & Pine Street""]}]
+
+Text: Floodwaters have closed Oakridge Road and traffic is backed up along Highway 47. Avoid Highway 47 if possible.
+Output: [{""evidence"":[""Oakridge Road""]},{""evidence"":[""Highway 47""]}]
+
+Text: Flooding reported at 1234 Westheimer Rd
+Output: [{""evidence"":[""1234 Westheimer Rd""]}]
+
+
+
+Text: HurricaneHarvey INTENSE eye wall of category 4 Hurricane Harvey from Rockport, TX","You are given a social media post.
+
+Extract all geographic location descriptions mentioned in the text.
+
+Return a JSON array of objects. Each object must contain:
+  - ""evidence"": a list of one or more words/phrases from the text that identify a single location description.
+
+Rules:
+  - One object per location description.
+  - Use minimal evidence necessary.
+  - Keep the exact wording from the text whenever possible.
+  - A location description may be a city, neighborhood, road, intersection, landmark, building, park, waterbody, facility, address, or other geographic reference.
+  - Street addresses are valid location descriptions, including addresses with house/building numbers.
+  - Do not fabricate locations.
+  - Your response must start with [ and end with ].
+  - Do not include any explanation, markdown, or extra text.
+
+Examples:
+
+Text: Heavy flooding reported in Springfield near the intersection of Maple Road & Pine Street
+Output: [{""evidence"":[""Springfield""]},{""evidence"":[""Maple Road & Pine Street""]}]
+
+Text: Floodwaters have closed Oakridge Road and traffic is backed up along Highway 47. Avoid Highway 47 if possible.
+Output: [{""evidence"":[""Oakridge Road""]},{""evidence"":[""Highway 47""]}]
+
+Text: Flooding reported at 1234 Westheimer Rd
+Output: [{""evidence"":[""1234 Westheimer Rd""]}]
+
+
+
+Text: HurricaneHarvey INTENSE eye wall of category 4 Hurricane Harvey from Rockport, TX","[{""evidence"": [""TX"", ""Rockport""]}, {""evidence"": [""TX"", ""Rockport""], ""category"": ""TX"", ""name"": ""Rockport""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX"", ""state"": ""TX""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX"", ""state"": ""TX"", ""city"": ""TX""}, {""evidence"": [""TX""], ""category"": ""TX"", ""name"": ""TX"", ""state"": ""TX"", ""city"": ""TX"", ""county"": ""TX""}]","[{""evidence"":[""Rockport""],""locationCate"":""C9"",""startIndex"":69,""endIndex"":77},{""evidence"":[""TX""],""locationCate"":""C9"",""startIndex"":79,""endIndex"":81}]",True,tx,tx,tx,,,,0,0,0,0,0,0,1,0,0,0,multi,6,6,0,0,0,6,6

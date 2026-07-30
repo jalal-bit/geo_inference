@@ -1,0 +1,32 @@
+{
+  "rows": 1080,
+  "dedupe_policy": "exact",
+  "source_valid_rows": 864,
+  "source_json_valid_rate": 0.8,
+  "field_recovered_nonempty_rows": 216,
+  "field_recovered_nonempty_rate": 0.2,
+  "mode_counts": {
+    "existing_valid_array": 864,
+    "recovered_location_values": 216
+  },
+  "recognized_keys": 2612,
+  "complete_values": 2481,
+  "incomplete_values": 131,
+  "missing_list_closer_values": 0,
+  "empty_values": 0,
+  "entities_before_dedupe": 5542,
+  "duplicates_dropped": 1353,
+  "entities_after_dedupe": 4189,
+  "input_csv": "harvey_results/Llama-3.2-3B_tweets_harvey_new_instruction_locdesc5_20260624_232211/all_predictions.csv",
+  "output_dir": "harvey_results/Llama-3.2-3B_tweets_harvey_new_instruction_locdesc5_20260624_232211/recovered_unclosed",
+  "raw_column": "pred_postproc_raw",
+  "postprocessed_column": "pred_postproc_raw",
+  "gold_column": "gold_raw",
+  "evidence_match_threshold": 0.75,
+  "fuzzy_backend": "rapidfuzz-3.9.7",
+  "overall_counts": {
+    "tp": 1276.0,
+    "fp": 2913.0,
+    "fn": 595.0
+  }
+}

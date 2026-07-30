@@ -606,45 +606,45 @@ def greedy_evidence_match(pred_list: List[str], gold_list: List[str], thr: float
             match += 1
     return match
 
-def evidence_f1_for_pair(pred_ent: Dict[str, Any], gold_ent: Dict[str, Any], thr: float) -> float:
-    pred_e = pred_ent.get("evidence") or pred_ent.get("mention") or []
-    gold_e = gold_ent.get("evidence") or gold_ent.get("mention") or []
-    if not isinstance(pred_e, list):
-        pred_e = [pred_e]
-    if not isinstance(gold_e, list):
-        gold_e = [gold_e]
-
-    m = greedy_evidence_match(pred_e, gold_e, thr)
-    p = m / len(pred_e) if pred_e else (1.0 if not gold_e else 0.0)
-    r = m / len(gold_e) if gold_e else (1.0 if not pred_e else 0.0)
-    return (2 * p * r / (p + r)) if (p + r) else 0.0
 # def evidence_f1_for_pair(pred_ent: Dict[str, Any], gold_ent: Dict[str, Any], thr: float) -> float:
 #     pred_e = pred_ent.get("evidence") or pred_ent.get("mention") or []
 #     gold_e = gold_ent.get("evidence") or gold_ent.get("mention") or []
-
 #     if not isinstance(pred_e, list):
 #         pred_e = [pred_e]
 #     if not isinstance(gold_e, list):
 #         gold_e = [gold_e]
 
-#     # Original phrase-level matching
 #     m = greedy_evidence_match(pred_e, gold_e, thr)
 #     p = m / len(pred_e) if pred_e else (1.0 if not gold_e else 0.0)
 #     r = m / len(gold_e) if gold_e else (1.0 if not pred_e else 0.0)
-#     original_f1 = (2 * p * r / (p + r)) if (p + r) else 0.0
+#     return (2 * p * r / (p + r)) if (p + r) else 0.0
+def evidence_f1_for_pair(pred_ent: Dict[str, Any], gold_ent: Dict[str, Any], thr: float) -> float:
+    pred_e = pred_ent.get("evidence") or pred_ent.get("mention") or []
+    gold_e = gold_ent.get("evidence") or gold_ent.get("mention") or []
 
-#     # New fallback: concatenate evidence pieces and compare as one phrase
-#     pred_joined = ", ".join(str(x) for x in pred_e if _norm_evidence_item(x))
-#     gold_joined = ", ".join(str(x) for x in gold_e if _norm_evidence_item(x))
+    if not isinstance(pred_e, list):
+        pred_e = [pred_e]
+    if not isinstance(gold_e, list):
+        gold_e = [gold_e]
 
-#     joined_sim = evidence_similarity(pred_joined, gold_joined)
+    # Original phrase-level matching
+    m = greedy_evidence_match(pred_e, gold_e, thr)
+    p = m / len(pred_e) if pred_e else (1.0 if not gold_e else 0.0)
+    r = m / len(gold_e) if gold_e else (1.0 if not pred_e else 0.0)
+    original_f1 = (2 * p * r / (p + r)) if (p + r) else 0.0
 
-#     if joined_sim >= thr:
-#         joined_f1 = 1.0
-#     else:
-#         joined_f1 = joined_sim
+    # New fallback: concatenate evidence pieces and compare as one phrase
+    pred_joined = ", ".join(str(x) for x in pred_e if _norm_evidence_item(x))
+    gold_joined = ", ".join(str(x) for x in gold_e if _norm_evidence_item(x))
 
-#     return max(original_f1, joined_f1)
+    joined_sim = evidence_similarity(pred_joined, gold_joined)
+
+    if joined_sim >= thr:
+        joined_f1 = 1.0
+    else:
+        joined_f1 = joined_sim
+
+    return max(original_f1, joined_f1)
 
 # --------------------------
 # Matching + metrics
@@ -675,27 +675,143 @@ def match_by_geo(pred_ents: List[Dict[str, Any]], gold_ents: List[Dict[str, Any]
                 break
     return matches
 
+
+def _locdesc_from_ent(ent: Dict[str, Any]) -> str:
+    ev = ent.get("evidence") or ent.get("mention") or ent.get("locDesc") or ent.get("locationDesc") or []
+    if not isinstance(ev, list):
+        ev = [ev]
+    return ", ".join(str(x).strip() for x in ev if x is not None and str(x).strip())
+
+
+def _loc_category(ent: Dict[str, Any]) -> str:
+    return str(
+        ent.get("locationCate")
+        or ent.get("locCate")
+        or ent.get("category")
+        or "UNKNOWN"
+    ).strip()
+
+
+def _simple_norm_text(x: str) -> str:
+    if x is None:
+        return ""
+    return " ".join(str(x).lower().strip().split())
+
+
+def fuzzy_ratio_0_100(a: str, b: str) -> float:
+    """
+    Similar to fuzzywuzzy fuzz.ratio.
+    Uses rapidfuzz if available, otherwise Python difflib.
+    """
+    a = _simple_norm_text(a)
+    b = _simple_norm_text(b)
+
+    if not a or not b:
+        return 0.0
+
+    try:
+        from rapidfuzz import fuzz
+        return float(fuzz.ratio(a, b))
+    except Exception:
+        from difflib import SequenceMatcher
+        return 100.0 * SequenceMatcher(None, a, b).ratio()
+
+
+def extract_locdesc_items(parsed_obj):
+    """
+    Returns list of:
+      {
+        "desc": "...",
+        "category": "C5"
+      }
+    """
+    items = []
+
+    for ent in parsed_obj["entities"]:
+        if not isinstance(ent, dict):
+            continue
+
+        desc = _locdesc_from_ent(ent)
+
+        if not desc:
+            continue
+
+        items.append({
+            "desc": desc,
+            "category": _loc_category(ent)
+        })
+
+    return items
+
+
+def greedy_locdesc_match(pred_items, gold_items, threshold=75.0):
+    """
+    One-to-one fuzzy matching between predicted and gold location descriptions.
+    Category is NOT used for matching.
+    """
+
+    gold_used = [False] * len(gold_items)
+    pred_used = [False] * len(pred_items)
+    matches = []
+
+    while True:
+        best_score = -1.0
+        best_i = -1
+        best_j = -1
+
+        for i, p in enumerate(pred_items):
+            if pred_used[i]:
+                continue
+
+            for j, g in enumerate(gold_items):
+                if gold_used[j]:
+                    continue
+
+                score = fuzzy_ratio_0_100(p["desc"], g["desc"])
+
+                if score > best_score:
+                    best_score = score
+                    best_i = i
+                    best_j = j
+
+        if best_i < 0 or best_j < 0 or best_score < threshold:
+            break
+
+        pred_used[best_i] = True
+        gold_used[best_j] = True
+
+        matches.append({
+            "pred_idx": best_i,
+            "gold_idx": best_j,
+            "score": best_score,
+            "gold_category": gold_items[best_j]["category"],
+            "pred_desc": pred_items[best_i]["desc"],
+            "gold_desc": gold_items[best_j]["desc"],
+        })
+
+    return matches, pred_used, gold_used
+
+
 def compute_test_metrics_entities_json(
     pred_texts: List[str],
     gold_texts: List[str],
     evidence_match_threshold: float = 0.75,
     evidence_ok_threshold: float = 0.50,
 ) -> Dict[str, float]:
+
+    # Match their style: fuzzy ratio threshold 75
+    fuzzy_threshold = evidence_match_threshold * 100.0
+
     parsed_pred = [parse_entity_array(x) for x in pred_texts]
     parsed_gold = [parse_entity_array(x) for x in gold_texts]
 
-    json_valid_rate = sum(1 for p in parsed_pred if p["__valid_json"]) / max(1, len(parsed_pred))
+    json_valid_rate = sum(
+        1 for p in parsed_pred if p["__valid_json"]
+    ) / max(1, len(parsed_pred))
 
-    pred_state_sets, pred_county_sets, pred_city_sets = [], [], []
-    gold_state_sets, gold_county_sets, gold_city_sets = [], [], []
-
-    pred_sig_sets: List[set] = []
-    gold_sig_sets: List[set] = []
-
-    ev_tp = ev_fp = ev_fn = 0.0
-    s_tp = s_fp = s_fn = 0.0
-
-    ev2_tp = ev2_fp = ev2_fn = 0.0
+    total_tp = 0.0
+    total_fp = 0.0
+    total_fn = 0.0
 
     abs_err_sum = 0.0
     bias_sum = 0.0
@@ -703,131 +819,238 @@ def compute_test_metrics_entities_json(
     pred_count_sum = 0.0
     gold_count_sum = 0.0
 
+    category_counts = {}
+
     for p, g in zip(parsed_pred, parsed_gold):
-        pred_ents = p["entities"]
-        gold_ents = g["entities"]
+        pred_items = extract_locdesc_items(p)
+        gold_items = extract_locdesc_items(g)
 
-        pred_valid = [e for e in pred_ents if entity_geo_key(e) is not None]
-        gold_valid = [e for e in gold_ents if entity_geo_key(e) is not None]
+        n_pred = len(pred_items)
+        n_gold = len(gold_items)
 
-        psets = extract_geo_sets(pred_valid)
-        gsets = extract_geo_sets(gold_valid)
-        pred_state_sets.append(psets["state"])
-        pred_county_sets.append(psets["county"])
-        pred_city_sets.append(psets["city"])
-        gold_state_sets.append(gsets["state"])
-        gold_county_sets.append(gsets["county"])
-        gold_city_sets.append(gsets["city"])
-
-        p_sigs = set(entity_geo_key(e) for e in pred_valid)
-        p_sigs.discard(None)
-        g_sigs = set(entity_geo_key(e) for e in gold_valid)
-        g_sigs.discard(None)
-
-        pred_sig_sets.append(p_sigs)
-        gold_sig_sets.append(g_sigs)
-
-        n_pred = len(p_sigs)
-        n_gold = len(g_sigs)
         pred_count_sum += n_pred
         gold_count_sum += n_gold
         abs_err_sum += abs(n_pred - n_gold)
         bias_sum += (n_pred - n_gold)
+
         if n_pred == n_gold:
             exact_count_hits += 1.0
 
-        matches = match_by_geo(pred_valid, gold_valid)
+        matches, pred_used, gold_used = greedy_locdesc_match(
+            pred_items,
+            gold_items,
+            threshold=fuzzy_threshold
+        )
 
-        for (pi, gi) in matches:
-            pe = pred_valid[pi].get("evidence", pred_valid[pi].get("mention", []))
-            ge = gold_valid[gi].get("evidence", gold_valid[gi].get("mention", []))
-            if not isinstance(pe, list):
-                pe = [pe]
-            if not isinstance(ge, list):
-                ge = [ge]
-            m = greedy_evidence_match(pe, ge, evidence_match_threshold)
-            ev_tp += m
-            ev_fp += max(0, len(pe) - m)
-            ev_fn += max(0, len(ge) - m)
+        tp = len(matches)
+        fp = n_pred - tp
+        fn = n_gold - tp
 
-        struct_tp_here = 0.0
-        for (pi, gi) in matches:
-            ef1 = evidence_f1_for_pair(pred_valid[pi], gold_valid[gi], evidence_match_threshold)
-            if ef1 >= evidence_ok_threshold:
-                struct_tp_here += 1.0
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
 
-        s_tp += struct_tp_here
-        s_fp += max(0.0, n_pred - struct_tp_here)
-        s_fn += max(0.0, n_gold - struct_tp_here)
+        # Gold-category stratified evaluation
+        for item in gold_items:
+            c = item["category"]
+            category_counts.setdefault(c, {"tp": 0.0, "fp": 0.0, "fn": 0.0, "support": 0.0})
+            category_counts[c]["support"] += 1.0
 
-        tp2, fp2, fn2 = evidence_anywhere_micro_counts(pred_valid, gold_valid, evidence_match_threshold=evidence_match_threshold, evidence_ok_threshold=evidence_ok_threshold)
-        ev2_tp += tp2
-        ev2_fp += fp2
-        ev2_fn += fn2
+        matched_gold_indices = set(m["gold_idx"] for m in matches)
 
-    def micro_prf_from_sets(pred_sets: List[set], gold_sets: List[set]) -> Dict[str, float]:
-        tp = fp = fn = 0.0
-        for pset, gset in zip(pred_sets, gold_sets):
-            tp += len(pset & gset)
-            fp += len(pset - gset)
-            fn += len(gset - pset)
-        return _micro_prf_counts(tp, fp, fn)
+        for j, item in enumerate(gold_items):
+            c = item["category"]
+            if j in matched_gold_indices:
+                category_counts[c]["tp"] += 1.0
+            else:
+                category_counts[c]["fn"] += 1.0
 
-    state_prf = micro_prf_from_sets(pred_state_sets, gold_state_sets)
-    county_prf = micro_prf_from_sets(pred_county_sets, gold_county_sets)
-    city_prf = micro_prf_from_sets(pred_city_sets, gold_city_sets)
-    
+        # Since model does not predict category, we do not assign unmatched predictions
+        # to a category. They are counted in overall FP, not category-level FP.
 
-    geo_tp = geo_fp = geo_fn = 0.0
-    geo_em_hits = 0.0
-    for p_sigs, g_sigs in zip(pred_sig_sets, gold_sig_sets):
-        geo_tp += len(p_sigs & g_sigs)
-        geo_fp += len(p_sigs - g_sigs)
-        geo_fn += len(g_sigs - p_sigs)
-        if p_sigs == g_sigs:
-            geo_em_hits += 1.0
-    geo_prf = _micro_prf_counts(geo_tp, geo_fp, geo_fn)
-    geo_exact_match = geo_em_hits / max(1.0, len(pred_sig_sets))
+    locdesc_prf = _micro_prf_counts(total_tp, total_fp, total_fn)
 
-    ev_prf = _micro_prf_counts(ev_tp, ev_fp, ev_fn)
-    structured_prf = _micro_prf_counts(s_tp, s_fp, s_fn)
-    ev2_prf = _micro_prf_counts(ev2_tp, ev2_fp, ev2_fn)
+    n = max(1.0, len(parsed_gold))
 
-    n = max(1.0, len(pred_sig_sets))
-    entity_count_mae = abs_err_sum / n
-    entity_count_bias = bias_sum / n
-    entity_count_exact_match_rate = exact_count_hits / n
-    pred_entity_avg = pred_count_sum / n
-
-    return {
+    metrics = {
         "json_valid_rate": float(json_valid_rate),
 
-        "state_f1": float(state_prf["f1"]),
-        "county_f1": float(county_prf["f1"]),
-        "city_f1": float(city_prf["f1"]),
+        "locdesc_precision": float(locdesc_prf["precision"]),
+        "locdesc_recall": float(locdesc_prf["recall"]),
+        "locdesc_f1": float(locdesc_prf["f1"]),
 
-        "geo_obj_precision": float(geo_prf["precision"]),
-        "geo_obj_recall": float(geo_prf["recall"]),
-        "geo_obj_f1": float(geo_prf["f1"]),
-        "geo_obj_exact_match": float(geo_exact_match),
-
-        "evidence_precision": float(ev_prf["precision"]),
-        "evidence_recall": float(ev_prf["recall"]),
-        "evidence_f1": float(ev_prf["f1"]),
-
-        "structured_precision": float(structured_prf["precision"]),
-        "structured_recall": float(structured_prf["recall"]),
-        "structured_f1": float(structured_prf["f1"]),
-
-        "entity_count_mae": float(entity_count_mae),
-        "entity_count_bias": float(entity_count_bias),
-        "entity_count_exact_match": float(entity_count_exact_match_rate),
-        "pred_entity_avg": float(pred_entity_avg),
-        "gold_entity_avg": float(sum(len(s) for s in gold_sig_sets) / n),
-        "evidence_any_precision" : float(ev2_prf["precision"]),
-        "evidence_any_recall" : float(ev2_prf["recall"]),
-        "evidence_any_f1" : float(ev2_prf["f1"]),
+        "location_count_mae": float(abs_err_sum / n),
+        "location_count_bias": float(bias_sum / n),
+        "location_count_exact_match": float(exact_count_hits / n),
+        "pred_location_avg": float(pred_count_sum / n),
+        "gold_location_avg": float(gold_count_sum / n),
     }
+
+    # Category-based scores using gold category only
+    for c, d in sorted(category_counts.items()):
+        prf = _micro_prf_counts(d["tp"], d["fp"], d["fn"])
+
+        safe_c = str(c).replace(" ", "_")
+
+        metrics[f"locdesc_{safe_c}_support"] = float(d["support"])
+        metrics[f"locdesc_{safe_c}_precision"] = float(prf["precision"])
+        metrics[f"locdesc_{safe_c}_recall"] = float(prf["recall"])
+        metrics[f"locdesc_{safe_c}_f1"] = float(prf["f1"])
+
+    return metrics
+# def compute_test_metrics_entities_json(
+#     pred_texts: List[str],
+#     gold_texts: List[str],
+#     evidence_match_threshold: float = 0.75,
+#     evidence_ok_threshold: float = 0.50,
+# ) -> Dict[str, float]:
+#     parsed_pred = [parse_entity_array(x) for x in pred_texts]
+#     parsed_gold = [parse_entity_array(x) for x in gold_texts]
+
+#     json_valid_rate = sum(1 for p in parsed_pred if p["__valid_json"]) / max(1, len(parsed_pred))
+
+#     pred_state_sets, pred_county_sets, pred_city_sets = [], [], []
+#     gold_state_sets, gold_county_sets, gold_city_sets = [], [], []
+
+#     pred_sig_sets: List[set] = []
+#     gold_sig_sets: List[set] = []
+
+#     ev_tp = ev_fp = ev_fn = 0.0
+#     s_tp = s_fp = s_fn = 0.0
+
+#     ev2_tp = ev2_fp = ev2_fn = 0.0
+
+#     abs_err_sum = 0.0
+#     bias_sum = 0.0
+#     exact_count_hits = 0.0
+#     pred_count_sum = 0.0
+#     gold_count_sum = 0.0
+
+#     for p, g in zip(parsed_pred, parsed_gold):
+#         pred_ents = p["entities"]
+#         gold_ents = g["entities"]
+
+#         pred_valid = [e for e in pred_ents if entity_geo_key(e) is not None]
+#         gold_valid = [e for e in gold_ents if entity_geo_key(e) is not None]
+
+#         psets = extract_geo_sets(pred_valid)
+#         gsets = extract_geo_sets(gold_valid)
+#         pred_state_sets.append(psets["state"])
+#         pred_county_sets.append(psets["county"])
+#         pred_city_sets.append(psets["city"])
+#         gold_state_sets.append(gsets["state"])
+#         gold_county_sets.append(gsets["county"])
+#         gold_city_sets.append(gsets["city"])
+
+#         p_sigs = set(entity_geo_key(e) for e in pred_valid)
+#         p_sigs.discard(None)
+#         g_sigs = set(entity_geo_key(e) for e in gold_valid)
+#         g_sigs.discard(None)
+
+#         pred_sig_sets.append(p_sigs)
+#         gold_sig_sets.append(g_sigs)
+
+#         n_pred = len(p_sigs)
+#         n_gold = len(g_sigs)
+#         pred_count_sum += n_pred
+#         gold_count_sum += n_gold
+#         abs_err_sum += abs(n_pred - n_gold)
+#         bias_sum += (n_pred - n_gold)
+#         if n_pred == n_gold:
+#             exact_count_hits += 1.0
+
+#         matches = match_by_geo(pred_valid, gold_valid)
+
+#         for (pi, gi) in matches:
+#             pe = pred_valid[pi].get("evidence", pred_valid[pi].get("mention", []))
+#             ge = gold_valid[gi].get("evidence", gold_valid[gi].get("mention", []))
+#             if not isinstance(pe, list):
+#                 pe = [pe]
+#             if not isinstance(ge, list):
+#                 ge = [ge]
+#             m = greedy_evidence_match(pe, ge, evidence_match_threshold)
+#             ev_tp += m
+#             ev_fp += max(0, len(pe) - m)
+#             ev_fn += max(0, len(ge) - m)
+
+#         struct_tp_here = 0.0
+#         for (pi, gi) in matches:
+#             ef1 = evidence_f1_for_pair(pred_valid[pi], gold_valid[gi], evidence_match_threshold)
+#             if ef1 >= evidence_ok_threshold:
+#                 struct_tp_here += 1.0
+
+#         s_tp += struct_tp_here
+#         s_fp += max(0.0, n_pred - struct_tp_here)
+#         s_fn += max(0.0, n_gold - struct_tp_here)
+
+#         tp2, fp2, fn2 = evidence_anywhere_micro_counts(pred_valid, gold_valid, evidence_match_threshold=evidence_match_threshold, evidence_ok_threshold=evidence_ok_threshold)
+#         ev2_tp += tp2
+#         ev2_fp += fp2
+#         ev2_fn += fn2
+
+#     def micro_prf_from_sets(pred_sets: List[set], gold_sets: List[set]) -> Dict[str, float]:
+#         tp = fp = fn = 0.0
+#         for pset, gset in zip(pred_sets, gold_sets):
+#             tp += len(pset & gset)
+#             fp += len(pset - gset)
+#             fn += len(gset - pset)
+#         return _micro_prf_counts(tp, fp, fn)
+
+#     state_prf = micro_prf_from_sets(pred_state_sets, gold_state_sets)
+#     county_prf = micro_prf_from_sets(pred_county_sets, gold_county_sets)
+#     city_prf = micro_prf_from_sets(pred_city_sets, gold_city_sets)
+    
+
+#     geo_tp = geo_fp = geo_fn = 0.0
+#     geo_em_hits = 0.0
+#     for p_sigs, g_sigs in zip(pred_sig_sets, gold_sig_sets):
+#         geo_tp += len(p_sigs & g_sigs)
+#         geo_fp += len(p_sigs - g_sigs)
+#         geo_fn += len(g_sigs - p_sigs)
+#         if p_sigs == g_sigs:
+#             geo_em_hits += 1.0
+#     geo_prf = _micro_prf_counts(geo_tp, geo_fp, geo_fn)
+#     geo_exact_match = geo_em_hits / max(1.0, len(pred_sig_sets))
+
+#     ev_prf = _micro_prf_counts(ev_tp, ev_fp, ev_fn)
+#     structured_prf = _micro_prf_counts(s_tp, s_fp, s_fn)
+#     ev2_prf = _micro_prf_counts(ev2_tp, ev2_fp, ev2_fn)
+
+#     n = max(1.0, len(pred_sig_sets))
+#     entity_count_mae = abs_err_sum / n
+#     entity_count_bias = bias_sum / n
+#     entity_count_exact_match_rate = exact_count_hits / n
+#     pred_entity_avg = pred_count_sum / n
+
+#     return {
+#         "json_valid_rate": float(json_valid_rate),
+
+#         "state_f1": float(state_prf["f1"]),
+#         "county_f1": float(county_prf["f1"]),
+#         "city_f1": float(city_prf["f1"]),
+
+#         "geo_obj_precision": float(geo_prf["precision"]),
+#         "geo_obj_recall": float(geo_prf["recall"]),
+#         "geo_obj_f1": float(geo_prf["f1"]),
+#         "geo_obj_exact_match": float(geo_exact_match),
+
+#         "evidence_precision": float(ev_prf["precision"]),
+#         "evidence_recall": float(ev_prf["recall"]),
+#         "evidence_f1": float(ev_prf["f1"]),
+
+#         "structured_precision": float(structured_prf["precision"]),
+#         "structured_recall": float(structured_prf["recall"]),
+#         "structured_f1": float(structured_prf["f1"]),
+
+#         "entity_count_mae": float(entity_count_mae),
+#         "entity_count_bias": float(entity_count_bias),
+#         "entity_count_exact_match": float(entity_count_exact_match_rate),
+#         "pred_entity_avg": float(pred_entity_avg),
+#         "gold_entity_avg": float(sum(len(s) for s in gold_sig_sets) / n),
+#         "evidence_any_precision" : float(ev2_prf["precision"]),
+#         "evidence_any_recall" : float(ev2_prf["recall"]),
+#         "evidence_any_f1" : float(ev2_prf["f1"]),
+#     }
 
 
 # --------------------------
@@ -1204,6 +1427,64 @@ def run_error_analysis(
 # --------------------------
 # Model loading
 # --------------------------
+# def load_model_for_eval(
+#     model_name: str,
+#     hf_token: Optional[str],
+#     checkpoint_folder: str,
+#     checkpoint_path: Optional[str],
+#     use_lora_adapter: bool,
+# ):
+#     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+#     tokenizer.padding_side = "left"
+#     if tokenizer.pad_token is None:
+#         tokenizer.pad_token = tokenizer.eos_token
+
+#     if checkpoint_path and checkpoint_path.strip():
+#         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
+#         if not best_dir.exists():
+#             raise FileNotFoundError(f"Checkpoint not found: {best_dir}")
+#         if use_lora_adapter:
+#             if PeftModel is None:
+#                 raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
+#             bnb_config = BitsAndBytesConfig(
+#                 load_in_4bit=True,
+#                 bnb_4bit_quant_type="nf4",
+#                 bnb_4bit_compute_dtype=torch.bfloat16,
+#                 bnb_4bit_use_double_quant=True,)
+#             base = AutoModelForCausalLM.from_pretrained(model_name,
+#                                                         quantization_config=bnb_config,
+#                                                         device_map=None,
+#                                                         token=hf_token,)
+#             model = PeftModel.from_pretrained(base, str(best_dir))
+#         # if use_lora_adapter:
+#         #     if PeftModel is None:
+#         #         raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
+#         #     base = AutoModelForCausalLM.from_pretrained(
+#         #         model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+#         #     )
+#         #     model = PeftModel.from_pretrained(base, str(best_dir))
+#         else:
+#             model = AutoModelForCausalLM.from_pretrained(
+#                 str(best_dir), torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+#             )
+#         print(f"Loaded checkpoint: {best_dir} (use_lora_adapter={use_lora_adapter})")
+#     else:
+#         model = AutoModelForCausalLM.from_pretrained(
+#             model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+#         )
+#         print(f"Loaded base model: {model_name}")
+
+#     if "llama" in model_name.lower():
+#         if tokenizer.pad_token_id is None:
+#             tokenizer.pad_token_id = tokenizer.eos_token_id
+#         if getattr(model, "config", None) is not None:
+#             model.config.pad_token_id = tokenizer.pad_token_id
+#         if getattr(model, "generation_config", None) is not None:
+#             model.generation_config.pad_token_id = tokenizer.pad_token_id
+
+#     return model, tokenizer
+
+
 def load_model_for_eval(
     model_name: str,
     hf_token: Optional[str],
@@ -1213,51 +1494,76 @@ def load_model_for_eval(
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
     tokenizer.padding_side = "left"
+    tokenizer.truncation_side = "left"
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_quant_storage=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
+
+    model_load_kwargs = {
+        "quantization_config": bnb_config,
+        "dtype": torch.bfloat16,
+        "device_map": None,
+        "low_cpu_mem_usage": True,
+        "token": hf_token,
+    }
+    if "gemma" in model_name.lower():
+        # Match the training loader and avoid Gemma-2-27B pad-only output
+        # when the bitsandbytes base is loaded without model-level BF16.
+        model_load_kwargs["attn_implementation"] = "eager"
+
     if checkpoint_path and checkpoint_path.strip():
         best_dir = Path(checkpoint_folder) / f"{model_name}_{checkpoint_path}" / "best"
+
         if not best_dir.exists():
             raise FileNotFoundError(f"Checkpoint not found: {best_dir}")
+
         if use_lora_adapter:
             if PeftModel is None:
                 raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16,
-                bnb_4bit_use_double_quant=True,)
-            base = AutoModelForCausalLM.from_pretrained(model_name,
-                                                        quantization_config=bnb_config,
-                                                        device_map=None,
-                                                        token=hf_token,)
+
+            base = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                **model_load_kwargs,
+            )
+
             model = PeftModel.from_pretrained(base, str(best_dir))
-        # if use_lora_adapter:
-        #     if PeftModel is None:
-        #         raise RuntimeError("peft is not installed but --use_lora_adapter was set.")
-        #     base = AutoModelForCausalLM.from_pretrained(
-        #         model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
-        #     )
-        #     model = PeftModel.from_pretrained(base, str(best_dir))
+
+            print(f"Loaded 4-bit base model: {model_name}")
+            print(f"Loaded LoRA adapter checkpoint: {best_dir}")
+
         else:
             model = AutoModelForCausalLM.from_pretrained(
-                str(best_dir), torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+                str(best_dir),
+                **model_load_kwargs,
             )
-        print(f"Loaded checkpoint: {best_dir} (use_lora_adapter={use_lora_adapter})")
+
+            print(f"Loaded 4-bit full checkpoint: {best_dir}")
+
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.bfloat16, device_map=None, token=hf_token
+            model_name,
+            **model_load_kwargs,
         )
-        print(f"Loaded base model: {model_name}")
 
-    if "llama" in model_name.lower():
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-        if getattr(model, "config", None) is not None:
-            model.config.pad_token_id = tokenizer.pad_token_id
-        if getattr(model, "generation_config", None) is not None:
-            model.generation_config.pad_token_id = tokenizer.pad_token_id
+        print(f"Loaded 4-bit pretrained base model: {model_name}")
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    if getattr(model, "config", None) is not None:
+        model.config.pad_token_id = tokenizer.pad_token_id
+        model.config.use_cache = True
+
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
 
     return model, tokenizer
 
@@ -1352,6 +1658,11 @@ def evaluate(model, loader, tokenizer, accelerator, max_new_tokens=120, log_firs
                     print("PRED  :", local_pred[0])
                     print("GOLD  :", local_gold[0])
                     print("POSTP :", local_infos[0])
+                    if not local_raw[0]:
+                        new_ids = gen_out[0, cutoff:]
+                        print("NEW TOKEN IDS:", new_ids[:32].tolist(), f"(count={new_ids.numel()})")
+                        raw_with_special = tokenizer.decode(new_ids, skip_special_tokens=False)
+                        print("RAW+SPECIAL:", repr(raw_with_special[:500]))
 
                 if step % 200 == 0 or step == total_steps - 1:
                     accelerator.print(f"Step {step+1}/{total_steps}")
@@ -1456,7 +1767,7 @@ def main():
                 "idx": i,
                 "prompt": all_prompts[i] if i < len(all_prompts) else "",
                 "gold_raw": all_gold[i] if i < len(all_gold) else "",
-                "pred_raw": "",  # NOTE: we no longer keep raw in all_pred; raw is only inside evaluate
+                "pred_raw": all_pred_raw[i] if i < len(all_pred_raw) else "",
                 "pred_postproc_raw": all_pred[i],
 
                 "postproc_mode": info.get("mode", ""),
@@ -1499,4 +1810,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

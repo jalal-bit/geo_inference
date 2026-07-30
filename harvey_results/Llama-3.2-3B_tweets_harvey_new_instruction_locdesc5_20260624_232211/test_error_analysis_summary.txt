@@ -1,0 +1,34 @@
+ERROR ANALYSIS SUMMARY (ENTITY ARRAY + EVIDENCE)
+==============================================
+
+Rows: 1,080
+Valid JSON rate: 0.800000
+
+Post-processing summary:
+  Rows with repeated arrays (deduped): 534
+  Rows with multiple DISTINCT arrays (merged): 452
+  Total geo conflicts kept: 0
+
+Exact-match error counts (set-based):
+  State errors:  2  (saved: test_error_analysis_state_errors.csv)
+  County errors: 2  (saved: test_error_analysis_county_errors.csv)
+  City errors:   1  (saved: test_error_analysis_city_errors.csv)
+  Full errors:   2 (saved: test_error_analysis_full_errors.csv)
+
+Evidence diagnostics (geo-matched pairs only):
+  Evidence error pairs (evidence_f1 < 0.65): 0
+  Evidence error rows csv: test_error_analysis_evidence_errors.csv
+
+Top missed evidence phrases: None
+Top halluc evidence phrases: None
+
+Per-item PRF tables (set-based):
+  State:  test_error_analysis_entity_prf_by_item_state.csv
+  County: test_error_analysis_entity_prf_by_item_county.csv
+  City:   test_error_analysis_entity_prf_by_item_city.csv
+
+Confusion matrices (top-1 label per row; top-K by gold support):
+  state: test_confusion_state.csv
+  county: test_confusion_county_top50.csv
+  city: test_confusion_city_top50.csv
+
